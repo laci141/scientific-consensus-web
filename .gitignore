@@ -1,0 +1,12 @@
+# Build scratch: the vendored CLI source used only to cross-compile the linux
+# binary. Not committed — regenerate with vendor-cli.sh.
+cli-src/
+
+# Windows-built binaries — local only.
+*.exe
+bin/server*
+
+# The linux CLI binary IS committed (Render needs it in the build context):
+#   bin/scientific-consensus-pp-cli-linux   <- intentionally NOT ignored
+
+.DS_Store

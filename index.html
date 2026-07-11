@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Scientific Consensus — Evidence Synthesis</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      background: linear-gradient(135deg, #0f0f0f 0%, #1a1a2e 100%);
+      color: #e0e0e0;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* HERO SECTION */
+    .hero {
+      height: 80vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 2rem;
+      text-align: center;
+      background: linear-gradient(180deg, rgba(15,15,15,1) 0%, rgba(26,26,46,0.8) 100%);
+    }
+    .hero h1 {
+      font-size: 3.5rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(90deg, #00d4ff, #7c3aed);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero p {
+      font-size: 1.2rem;
+      color: #999;
+      margin-bottom: 2rem;
+    }
+    .claim-input-box {
+      width: 100%;
+      max-width: 800px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 1rem;
+      padding: 1.5rem;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+    .claim-input-box textarea {
+      width: 100%;
+      height: 120px;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 0.5rem;
+      padding: 1rem;
+      color: #e0e0e0;
+      font-size: 1rem;
+      resize: none;
+      outline: none;
+      transition: all 0.3s ease;
+    }
+    .claim-input-box textarea:focus {
+      border-color: rgba(0, 212, 255, 0.5);
+      box-shadow: inset 0 0 1rem rgba(0, 212, 255, 0.1);
+    }
+    .claim-input-box textarea::placeholder {
+      color: #666;
+    }
+
+    /* BENTO GRID (5 action buttons) */
+    .bento-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1.5rem;
+      padding: 4rem 2rem;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .bento-card {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 1rem;
+      padding: 2rem;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      backdrop-filter: blur(10px);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      min-height: 180px;
+    }
+    .bento-card:hover {
+      transform: translateY(-8px);
+      border-color: rgba(255, 255, 255, 0.3);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+    }
+    .bento-card.consensus {
+      --color: #00d4ff;
+      border-left: 4px solid var(--color);
+    }
+    .bento-card.evidence {
+      --color: #7c3aed;
+      border-left: 4px solid var(--color);
+    }
+    .bento-card.compare {
+      --color: #ec4899;
+      border-left: 4px solid var(--color);
+    }
+    .bento-card.gaps {
+      --color: #fbbf24;
+      border-left: 4px solid var(--color);
+    }
+    .bento-card.controversies {
+      --color: #ef4444;
+      border-left: 4px solid var(--color);
+    }
+    .bento-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+    .bento-label {
+      font-size: 1.3rem;
+      font-weight: 600;
+      color: var(--color);
+    }
+
+    /* MODAL (popup) */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(5px);
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+      animation: fadeIn 0.3s ease;
+    }
+    .modal.active {
+      display: flex;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .modal-content {
+      background: rgba(26, 26, 46, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 1.5rem;
+      padding: 2rem;
+      max-width: 90%;
+      width: 640px;
+      max-height: 85vh;
+      overflow-y: auto;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+      animation: slideUp 0.3s ease;
+    }
+    @keyframes slideUp {
+      from { transform: translateY(50px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+    .modal-header h2 {
+      font-size: 1.8rem;
+      color: var(--color, #00d4ff);
+    }
+    .close-btn {
+      background: none;
+      border: none;
+      color: #999;
+      font-size: 2rem;
+      cursor: pointer;
+      transition: color 0.2s;
+      line-height: 1;
+    }
+    .close-btn:hover {
+      color: #e0e0e0;
+    }
+
+    /* FORM INPUTS */
+    .form-group {
+      margin-bottom: 1.5rem;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+      color: #bbb;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+    .form-group input,
+    .form-group textarea,
+    .form-group select {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 0.5rem;
+      padding: 0.75rem;
+      color: #e0e0e0;
+      font-size: 1rem;
+      transition: all 0.2s ease;
+    }
+    .form-group input:focus,
+    .form-group textarea:focus,
+    .form-group select:focus {
+      outline: none;
+      border-color: rgba(0, 212, 255, 0.5);
+      box-shadow: inset 0 0 1rem rgba(0, 212, 255, 0.1);
+    }
+    .form-group select {
+      cursor: pointer;
+    }
+    .form-group select option { background: #1a1a2e; }
+
+    /* BUTTONS */
+    .btn {
+      background: linear-gradient(90deg, #00d4ff, #7c3aed);
+      border: none;
+      color: #000;
+      padding: 0.75rem 2rem;
+      border-radius: 0.5rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-size: 1rem;
+    }
+    .btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 8px 24px rgba(0, 212, 255, 0.3);
+    }
+    .btn:active {
+      transform: scale(0.98);
+    }
+
+    /* RESULTS */
+    .results-content {
+      animation: fadeIn 0.3s ease;
+    }
+    .result-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      color: #e0e0e0;
+    }
+    .result-card h3 {
+      color: var(--color, #00d4ff);
+      margin-bottom: 0.5rem;
+    }
+    .result-card p {
+      font-size: 0.95rem;
+      line-height: 1.8;
+    }
+    .result-card table { border-collapse: collapse; }
+    .result-card th, .result-card td { text-align: left; padding: 4px 10px 4px 0; }
+    .result-card ul { padding-left: 1.2rem; }
+    .result-card li { margin-bottom: 0.4rem; }
+    .verdict-box {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--color, #00d4ff);
+      margin-bottom: 1rem;
+      padding: 1rem;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 0.5rem;
+    }
+    .back-btn {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: #e0e0e0;
+      padding: 0.5rem 1.2rem;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      font-size: 0.9rem;
+      margin-top: 0.5rem;
+    }
+    .back-btn:hover { border-color: rgba(255,255,255,0.3); }
+
+    /* FOOTER */
+    footer {
+      text-align: center;
+      padding: 2rem;
+      color: #666;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    footer a {
+      color: #00d4ff;
+      text-decoration: none;
+    }
+    footer a:hover {
+      text-decoration: underline;
+    }
+
+    /* LOADING STATE */
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top-color: #00d4ff;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      vertical-align: middle;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 2rem; }
+      .claim-input-box textarea { height: 80px; }
+      .modal-content { max-width: 95%; padding: 1.5rem; }
+      .bento-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HERO SECTION -->
+  <section class="hero">
+    <h1>🧬 Scientific Consensus</h1>
+    <p>Aggregate evidence across PubMed, OpenAlex, Crossref &amp; Europe PMC</p>
+    <div class="claim-input-box">
+      <textarea id="heroClaimInput" placeholder="e.g., 'Vitamin D reduces respiratory infections'"></textarea>
+    </div>
+  </section>
+
+  <!-- BENTO GRID -->
+  <section class="bento-grid">
+    <div class="bento-card consensus" onclick="openModal('consensus')">
+      <div class="bento-icon">📊</div>
+      <div class="bento-label">Consensus</div>
+    </div>
+    <div class="bento-card evidence" onclick="openModal('evidence')">
+      <div class="bento-icon">🔬</div>
+      <div class="bento-label">Evidence Pyramid</div>
+    </div>
+    <div class="bento-card compare" onclick="openModal('compare')">
+      <div class="bento-icon">⚖️</div>
+      <div class="bento-label">Compare Claims</div>
+    </div>
+    <div class="bento-card gaps" onclick="openModal('gaps')">
+      <div class="bento-icon">🔍</div>
+      <div class="bento-label">Research Gaps</div>
+    </div>
+    <div class="bento-card controversies" onclick="openModal('controversies')">
+      <div class="bento-icon">⚡</div>
+      <div class="bento-label">Controversies</div>
+    </div>
+  </section>
+
+  <!-- MODALS -->
+  <!-- CONSENSUS MODAL -->
+  <div class="modal" id="consensusModal">
+    <div class="modal-content" style="--color: #00d4ff;">
+      <div class="modal-header">
+        <h2>📊 Consensus Analysis</h2>
+        <button class="close-btn" onclick="closeModal('consensus')">&times;</button>
+      </div>
+      <div id="consensusForm" class="form-group">
+        <label>Claim</label>
+        <textarea id="consensusClaim" placeholder="Enter your claim..." style="height: 80px;"></textarea>
+        <label style="margin-top: 1rem;">LLM Key (optional)</label>
+        <input type="password" id="consensusKey" placeholder="sk-ant-... for AI-assisted mode">
+        <label style="margin-top: 1rem;">Provider</label>
+        <select id="consensusProvider">
+          <option value="">Heuristic (default)</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="openai">OpenAI</option>
+          <option value="gemini">Google Gemini</option>
+          <option value="groq">Groq</option>
+          <option value="mistral">Mistral</option>
+        </select>
+        <label style="margin-top: 1rem;">Limit (studies)</label>
+        <input type="range" id="consensusLimit" min="1" max="200" value="50" style="width: 100%;">
+        <span id="consensusLimitVal">50</span>
+        <button class="btn" onclick="runAnalysis('consensus')" style="margin-top: 1rem; width: 100%;">Run Analysis</button>
+      </div>
+      <div id="consensusResults" style="display: none;"></div>
+    </div>
+  </div>
+
+  <!-- EVIDENCE MODAL -->
+  <div class="modal" id="evidenceModal">
+    <div class="modal-content" style="--color: #7c3aed;">
+      <div class="modal-header">
+        <h2>🔬 Evidence Pyramid</h2>
+        <button class="close-btn" onclick="closeModal('evidence')">&times;</button>
+      </div>
+      <div id="evidenceForm" class="form-group">
+        <label>Claim</label>
+        <textarea id="evidenceClaim" placeholder="Enter your claim..." style="height: 80px;"></textarea>
+        <label style="margin-top: 1rem;">LLM Key (optional)</label>
+        <input type="password" id="evidenceKey" placeholder="sk-ant-... for AI-assisted mode">
+        <label style="margin-top: 1rem;">Provider</label>
+        <select id="evidenceProvider">
+          <option value="">Heuristic (default)</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="openai">OpenAI</option>
+          <option value="gemini">Google Gemini</option>
+          <option value="groq">Groq</option>
+          <option value="mistral">Mistral</option>
+        </select>
+        <label style="margin-top: 1rem;">Limit (studies)</label>
+        <input type="range" id="evidenceLimit" min="1" max="200" value="50" style="width: 100%;">
+        <span id="evidenceLimitVal">50</span>
+        <button class="btn" onclick="runAnalysis('evidence')" style="margin-top: 1rem; width: 100%;">Run Analysis</button>
+      </div>
+      <div id="evidenceResults" style="display: none;"></div>
+    </div>
+  </div>
+
+  <!-- COMPARE MODAL -->
+  <div class="modal" id="compareModal">
+    <div class="modal-content" style="--color: #ec4899;">
+      <div class="modal-header">
+        <h2>⚖️ Compare Claims</h2>
+        <button class="close-btn" onclick="closeModal('compare')">&times;</button>
+      </div>
+      <div id="compareForm" class="form-group">
+        <label>Claim 1</label>
+        <textarea id="compareClaim1" placeholder="Enter first claim..." style="height: 70px;"></textarea>
+        <label style="margin-top: 1rem;">Claim 2</label>
+        <textarea id="compareClaim2" placeholder="Enter second claim..." style="height: 70px;"></textarea>
+        <label style="margin-top: 1rem;">LLM Key (optional)</label>
+        <input type="password" id="compareKey" placeholder="sk-ant-... for AI-assisted mode">
+        <label style="margin-top: 1rem;">Provider</label>
+        <select id="compareProvider">
+          <option value="">Heuristic (default)</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="openai">OpenAI</option>
+          <option value="gemini">Google Gemini</option>
+          <option value="groq">Groq</option>
+          <option value="mistral">Mistral</option>
+        </select>
+        <label style="margin-top: 1rem;">Limit (studies)</label>
+        <input type="range" id="compareLimit" min="1" max="200" value="40" style="width: 100%;">
+        <span id="compareLimitVal">40</span>
+        <button class="btn" onclick="runAnalysis('compare')" style="margin-top: 1rem; width: 100%;">Run Analysis</button>
+      </div>
+      <div id="compareResults" style="display: none;"></div>
+    </div>
+  </div>
+
+  <!-- GAPS MODAL -->
+  <div class="modal" id="gapsModal">
+    <div class="modal-content" style="--color: #fbbf24;">
+      <div class="modal-header">
+        <h2>🔍 Research Gaps</h2>
+        <button class="close-btn" onclick="closeModal('gaps')">&times;</button>
+      </div>
+      <div id="gapsForm" class="form-group">
+        <label>Claim</label>
+        <textarea id="gapsClaim" placeholder="Enter your claim..." style="height: 80px;"></textarea>
+        <label style="margin-top: 1rem;">LLM Key (optional)</label>
+        <input type="password" id="gapsKey" placeholder="sk-ant-... for AI-assisted mode">
+        <label style="margin-top: 1rem;">Provider</label>
+        <select id="gapsProvider">
+          <option value="">Heuristic (default)</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="openai">OpenAI</option>
+          <option value="gemini">Google Gemini</option>
+          <option value="groq">Groq</option>
+          <option value="mistral">Mistral</option>
+        </select>
+        <label style="margin-top: 1rem;">Limit (studies)</label>
+        <input type="range" id="gapsLimit" min="1" max="200" value="60" style="width: 100%;">
+        <span id="gapsLimitVal">60</span>
+        <button class="btn" onclick="runAnalysis('gaps')" style="margin-top: 1rem; width: 100%;">Run Analysis</button>
+      </div>
+      <div id="gapsResults" style="display: none;"></div>
+    </div>
+  </div>
+
+  <!-- CONTROVERSIES MODAL -->
+  <div class="modal" id="controversiesModal">
+    <div class="modal-content" style="--color: #ef4444;">
+      <div class="modal-header">
+        <h2>⚡ Controversies</h2>
+        <button class="close-btn" onclick="closeModal('controversies')">&times;</button>
+      </div>
+      <div id="controversiesForm" class="form-group">
+        <label>Claim</label>
+        <textarea id="controversiesClaim" placeholder="Enter your claim..." style="height: 80px;"></textarea>
+        <label style="margin-top: 1rem;">LLM Key (optional)</label>
+        <input type="password" id="controversiesKey" placeholder="sk-ant-... for AI-assisted mode">
+        <label style="margin-top: 1rem;">Provider</label>
+        <select id="controversiesProvider">
+          <option value="">Heuristic (default)</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="openai">OpenAI</option>
+          <option value="gemini">Google Gemini</option>
+          <option value="groq">Groq</option>
+          <option value="mistral">Mistral</option>
+        </select>
+        <label style="margin-top: 1rem;">Limit (studies)</label>
+        <input type="range" id="controversiesLimit" min="1" max="200" value="50" style="width: 100%;">
+        <span id="controversiesLimitVal">50</span>
+        <button class="btn" onclick="runAnalysis('controversies')" style="margin-top: 1rem; width: 100%;">Run Analysis</button>
+      </div>
+      <div id="controversiesResults" style="display: none;"></div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer>
+    <p>Scientific Consensus CLI × Bento UI × LLM-assisted Evidence Synthesis</p>
+    <p><a href="https://github.com/laci141/scientific-consensus-web">GitHub</a> | Powered by <a href="https://github.com/mvanhorn/printing-press-library">Printing Press Library</a></p>
+  </footer>
+
+  <script>
+    // localStorage integration
+    const storageKeys = { key: 'sc_llm_key', provider: 'sc_provider' };
+
+    function loadSettings() {
+      const stored_key = localStorage.getItem(storageKeys.key) || '';
+      const stored_provider = localStorage.getItem(storageKeys.provider) || '';
+      ['consensus', 'evidence', 'compare', 'gaps', 'controversies'].forEach(ep => {
+        const keyElem = document.getElementById(`${ep}Key`);
+        const provElem = document.getElementById(`${ep}Provider`);
+        if (keyElem) keyElem.value = stored_key;
+        if (provElem) provElem.value = stored_provider;
+      });
+    }
+
+    function saveSettings(endpoint) {
+      const keyElem = document.getElementById(`${endpoint}Key`);
+      const provElem = document.getElementById(`${endpoint}Provider`);
+      if (keyElem) localStorage.setItem(storageKeys.key, keyElem.value);
+      if (provElem) localStorage.setItem(storageKeys.provider, provElem.value);
+    }
+
+    // Copy the hero claim into a freshly-opened modal's claim field for convenience.
+    function openModal(endpoint) {
+      const modal = document.getElementById(`${endpoint}Modal`);
+      if (!modal) return;
+      const hero = document.getElementById('heroClaimInput');
+      if (hero && hero.value.trim()) {
+        const target = document.getElementById(`${endpoint}Claim`) || document.getElementById(`${endpoint}Claim1`);
+        if (target && !target.value.trim()) target.value = hero.value.trim();
+      }
+      modal.classList.add('active');
+    }
+
+    function closeModal(endpoint) {
+      const modal = document.getElementById(`${endpoint}Modal`);
+      if (modal) modal.classList.remove('active');
+    }
+
+    // escape untrusted text (study titles, LLM/CLI strings) before injecting as HTML
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    }
+
+    // Reset a modal back to its form view (used by the "New analysis" button).
+    function resetModal(endpoint) {
+      const formField = document.getElementById(`${endpoint}Form`);
+      const resultsDiv = document.getElementById(`${endpoint}Results`);
+      if (resultsDiv) { resultsDiv.style.display = 'none'; resultsDiv.innerHTML = ''; }
+      if (formField) formField.style.display = 'block';
+    }
+
+    async function runAnalysis(endpoint) {
+      saveSettings(endpoint);
+      const keyField  = document.getElementById(`${endpoint}Key`);
+      const provField = document.getElementById(`${endpoint}Provider`);
+      const limitField = document.getElementById(`${endpoint}Limit`);
+      const formField = document.getElementById(`${endpoint}Form`);
+      const resultsDiv = document.getElementById(`${endpoint}Results`);
+
+      // Build the per-endpoint request body.
+      let body;
+      if (endpoint === 'compare') {
+        const c1 = document.getElementById('compareClaim1');
+        const c2 = document.getElementById('compareClaim2');
+        if (!c1.value.trim() || !c2.value.trim()) { alert('Please enter both claims'); return; }
+        body = { claim1: c1.value.trim(), claim2: c2.value.trim(), limit: parseInt(limitField.value) };
+      } else {
+        const claimField = document.getElementById(`${endpoint}Claim`);
+        if (!claimField.value.trim()) { alert('Please enter a claim'); return; }
+        body = { claim: claimField.value.trim(), limit: parseInt(limitField.value) };
+      }
+      if (provField.value) body.provider = provField.value;
+
+      formField.style.display = 'none';
+      resultsDiv.style.display = 'block';
+      resultsDiv.innerHTML = '<div class="loading"></div> Analyzing…';
+
+      // BYOK: send the key header only when a key is present; provider header alongside it.
+      const headers = { 'Content-Type': 'application/json' };
+      if (keyField.value.trim()) {
+        headers['X-LLM-Key'] = keyField.value.trim();
+        headers['X-LLM-Provider'] = provField.value || '';
+      }
+
+      try {
+        const res = await fetch(`http://127.0.0.1:8090/api/${endpoint}`, {
+          method: 'POST', headers, body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          resultsDiv.innerHTML = `<div class="result-card"><h3>Error</h3><p>${esc(data.error || 'Unknown error')}</p></div>` + newAnalysisBtn(endpoint);
+          return;
+        }
+        const result = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+        resultsDiv.innerHTML = renderResult(endpoint, result, data.stance_source) + newAnalysisBtn(endpoint);
+      } catch (e) {
+        resultsDiv.innerHTML = `<div class="result-card"><h3>Error</h3><p>${esc(e.message)}</p></div>` + newAnalysisBtn(endpoint);
+      }
+    }
+
+    function newAnalysisBtn(endpoint) {
+      return `<button class="back-btn" onclick="resetModal('${endpoint}')">← New analysis</button>`;
+    }
+
+    function fx(n) { const v = Number(n); return isNaN(v) ? '—' : v.toFixed(2); }
+    function num(n) { return (Number(n) || 0).toLocaleString(); }
+
+    function renderResult(endpoint, result, stanceSource) {
+      if (endpoint === 'consensus') {
+        return `
+          <div class="result-card" style="--color: #00d4ff;">
+            <div class="verdict-box">${esc(result.verdict)}</div>
+            <p><strong>Consensus Score:</strong> ${fx(result.consensus_score)}</p>
+            <p><strong>Confidence:</strong> ${fx(result.confidence)}</p>
+            <p><strong>Evidence Strength:</strong> ${esc(result.evidence_strength)}</p>
+            <p><strong>Apex Design:</strong> ${esc(result.apex_design)}</p>
+            <p><strong>Studies Analyzed:</strong> ${num(result.study_count)}</p>
+            <p><strong>Supporting / Refuting / Mixed / Inconclusive:</strong>
+               ${num(result.supporting)} / ${num(result.refuting)} / ${num(result.mixed)} / ${num(result.inconclusive)}</p>
+            <p><strong>Method:</strong> ${esc(result.stance_method)} &nbsp;·&nbsp; <strong>Requested:</strong> ${esc(stanceSource)}</p>
+          </div>`;
+      }
+
+      if (endpoint === 'evidence') {
+        let html = `<div class="result-card" style="--color: #7c3aed;"><h3>Evidence Pyramid</h3>`;
+        if (Array.isArray(result.pyramid)) {
+          html += '<table style="width:100%;font-size:0.9rem;"><tr><th>Design</th><th>Count</th><th>%</th></tr>';
+          result.pyramid.forEach(p => {
+            html += `<tr><td>${esc(p.design)}</td><td>${num(p.count)}</td><td>${Number(p.pct)||0}%</td></tr>`;
+          });
+          html += '</table>';
+        }
+        html += `<p style="margin-top:1rem;"><strong>Apex Design:</strong> ${esc(result.apex_design)} &nbsp;·&nbsp; <strong>Studies:</strong> ${num(result.study_count)}</p></div>`;
+        return html;
+      }
+
+      if (endpoint === 'compare') {
+        const a = result.claim_a || {}, b = result.claim_b || {};
+        const card = (x) => `
+          <div class="result-card" style="--color: #ec4899;">
+            <h3>${esc(x.claim)}</h3>
+            <div class="verdict-box">${esc(x.verdict)}</div>
+            <p><strong>Score:</strong> ${fx(x.consensus_score)} |
+               <strong>Confidence:</strong> ${fx(x.confidence)} |
+               <strong>Strength:</strong> ${esc(x.evidence_strength)} |
+               <strong>Studies:</strong> ${num(x.study_count)}</p>
+            <p><strong>Apex Design:</strong> ${esc(x.apex_design)} &nbsp;·&nbsp; <strong>Method:</strong> ${esc(x.stance_method)}</p>
+          </div>`;
+        return card(a) + card(b);
+      }
+
+      // gaps: CLI returns { query, analyzed, latest_year, has_rct_or_stronger, findings:[{kind,detail}] }
+      if (endpoint === 'gaps') {
+        let html = `<div class="result-card" style="--color: #fbbf24;"><h3>Research Gaps</h3>`;
+        html += `<p><strong>Query:</strong> ${esc(result.query)} &nbsp;·&nbsp; <strong>Analyzed:</strong> ${num(result.analyzed)}`;
+        if (result.latest_year != null) html += ` &nbsp;·&nbsp; <strong>Latest year:</strong> ${esc(result.latest_year)}`;
+        if (result.has_rct_or_stronger != null) html += ` &nbsp;·&nbsp; <strong>RCT+ evidence:</strong> ${result.has_rct_or_stronger ? 'yes' : 'no'}`;
+        html += `</p>`;
+        const findings = Array.isArray(result.findings) ? result.findings : [];
+        if (findings.length) {
+          html += '<ul>';
+          findings.forEach(f => {
+            const kind = esc(String(f.kind || 'gap').replace(/-/g, ' '));
+            html += `<li><strong>${kind}</strong>${f.detail ? ' — ' + esc(f.detail) : ''}</li>`;
+          });
+          html += '</ul>';
+        } else {
+          html += '<p>No specific gaps flagged for this topic.</p>';
+        }
+        return html + '</div>';
+      }
+
+      // controversies: CLI returns { controversy_score, contested, study_count,
+      //   supporting, refuting, mixed, supporting_side:[work], refuting_side:[work] }
+      if (endpoint === 'controversies') {
+        let html = `<div class="result-card" style="--color: #ef4444;"><h3>Controversies</h3>`;
+        html += `<p><strong>Controversy score:</strong> ${esc(result.controversy_score)} &nbsp;·&nbsp; <strong>Contested:</strong> ${result.contested ? 'yes' : 'no'} &nbsp;·&nbsp; <strong>Studies:</strong> ${num(result.study_count)}</p>`;
+        html += `<p><strong>Supporting / Refuting / Mixed:</strong> ${num(result.supporting)} / ${num(result.refuting)} / ${num(result.mixed)}</p>`;
+        const side = (label, arr) => {
+          if (!Array.isArray(arr) || !arr.length) return '';
+          let s = `<h3 style="font-size:1rem;margin-top:1rem;">${label}</h3><ul>`;
+          arr.forEach(w => { s += `<li>${esc(w.title)} <em>(${esc(w.year)}, ${esc(w.design)}, ${num(w.cited_by_count)} cites)</em></li>`; });
+          return s + '</ul>';
+        };
+        html += side('Supporting side', result.supporting_side);
+        html += side('Refuting side', result.refuting_side);
+        if (!(result.supporting_side||[]).length && !(result.refuting_side||[]).length) {
+          html += '<p>No strongly-conflicting studies surfaced.</p>';
+        }
+        return html + '</div>';
+      }
+
+      return `<div class="result-card"><pre>${esc(JSON.stringify(result, null, 2))}</pre></div>`;
+    }
+
+    // Close modal on outside click
+    document.querySelectorAll('.modal').forEach(modal => {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          const id = modal.id.replace('Modal', '');
+          closeModal(id);
+        }
+      });
+    });
+
+    // Range slider labels
+    ['consensus', 'evidence', 'compare', 'gaps', 'controversies'].forEach(ep => {
+      const slider = document.getElementById(`${ep}Limit`);
+      if (slider) {
+        slider.addEventListener('input', (e) => {
+          document.getElementById(`${ep}LimitVal`).textContent = e.target.value;
+        });
+      }
+    });
+
+    // Load settings on page load
+    window.addEventListener('load', loadSettings);
+  </script>
+
+</body>
+</html>

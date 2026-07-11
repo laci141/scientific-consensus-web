@@ -1,0 +1,18 @@
+# VCS / editor / agent noise
+.git
+.gitignore
+.claude
+.DS_Store
+
+# Docs aren't needed in the runtime image.
+*.md
+
+# Windows-built binaries can't run in the Linux image; the runtime copies only
+# the pre-built linux CLI (bin/scientific-consensus-pp-cli-linux).
+*.exe
+bin/server*
+bin/*.exe
+
+# cli-src/ is build scratch used to cross-compile the linux CLI; not needed in
+# the image (the runtime copies the already-built binary).
+cli-src/

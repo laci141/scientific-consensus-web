@@ -1,0 +1,18 @@
+# Render Blueprint for scientific-consensus-web.
+# Render builds the Docker image from ./Dockerfile on its own servers, so no
+# local Docker is required to deploy — but the repo MUST contain ./cli-src with
+# the CLI Go source (run ./vendor-cli.sh and commit cli-src before pushing).
+#
+# The server reads $PORT (set by Render) and binds 0.0.0.0:$PORT. The BYOK LLM
+# key is supplied per-request by end users via the X-LLM-Key header — it is NEVER
+# stored in the service environment here.
+services:
+  - type: web
+    name: scientific-consensus-web
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeploy: true
+    # No secrets: keys are BYOK (client-supplied per request), never stored here.
+    envVars: []
