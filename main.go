@@ -118,12 +118,33 @@ func main() {
 	}
 }
 
+// setCORS adds the CORS headers every /api response needs. Browsers refuse
+// fetch() responses without these ("Failed to fetch") even same-origin in some
+// embed/proxy setups, and error responses need them too or the browser hides
+// the JSON error body.
+func setCORS(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-LLM-Key, X-LLM-Provider")
+}
+
+// preflight handles the CORS preflight OPTIONS request. Returns true when the
+// request was a preflight and has been fully answered.
+func preflight(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodOptions {
+		return false
+	}
+	w.WriteHeader(http.StatusOK)
+	return true
+}
+
 func handleRoot(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/", "/index.html":
-		// Serve the single-page frontend from the same origin as /api/* so the
-		// browser fetch needs no CORS relaxation. Falls back to "ok" (a plain
-		// health check) when index.html isn't present next to the binary.
+		// Serve the single-page frontend. /api/* responses carry explicit CORS
+		// headers (see setCORS) so browser fetch works regardless of origin.
+		// Falls back to "ok" (a plain health check) when index.html isn't
+		// present next to the binary.
 		if data, err := os.ReadFile("index.html"); err == nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_, _ = w.Write(data)
@@ -257,6 +278,10 @@ type claimRequest struct {
 // "<subcommand> <claim> --json --limit <n>". defLimit is that subcommand's CLI
 // default, used when the caller omits or over-ranges limit.
 func handleClaimCmd(w http.ResponseWriter, r *http.Request, subcommand string, defLimit int) {
+	setCORS(w)
+	if preflight(w, r) {
+		return
+	}
 	var req claimRequest
 	if !decodePOST(w, r, &req) {
 		return
@@ -300,6 +325,10 @@ type compareRequest struct {
 }
 
 func handleCompare(w http.ResponseWriter, r *http.Request) {
+	setCORS(w)
+	if preflight(w, r) {
+		return
+	}
 	var req compareRequest
 	if !decodePOST(w, r, &req) {
 		return
