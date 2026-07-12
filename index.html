@@ -611,7 +611,7 @@
       }
 
       try {
-        const res = await fetch(`http://127.0.0.1:8090/api/${endpoint}`, {
+        const res = await fetch(`/api/${endpoint}`, {
           method: 'POST', headers, body: JSON.stringify(body)
         });
         const data = await res.json();
