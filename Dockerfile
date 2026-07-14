@@ -2,7 +2,8 @@
 #
 # Multi-stage build for scientific-consensus-web.
 #
-# Stage 1 builds the web server for linux/amd64 from ./main.go.
+# Stage 1 builds the web server for linux/amd64 from all root *.go files
+# (main.go + providers.go).
 # The runtime stage copies in a PRE-BUILT linux/amd64 CLI binary,
 # bin/scientific-consensus-pp-cli-linux, produced by vendor-cli.sh (which
 # cross-compiles the scientific-consensus CLI from the monorepo source). That
@@ -15,8 +16,8 @@
 FROM golang:1.26-alpine AS web-builder
 WORKDIR /build
 COPY go.mod ./
-COPY main.go ./
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/server ./main.go
+COPY *.go ./
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/server .
 
 # ---- Stage 2: minimal runtime ------------------------------------------------
 FROM alpine:latest
