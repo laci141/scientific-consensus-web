@@ -1,20 +1,21 @@
 // Command scientific-consensus-web is a thin standalone HTTP wrapper around the
-// scientific-consensus CLI. Its single job (Phase 1) is to expose one endpoint,
-// POST /api/consensus, that runs the compiled CLI once per request and injects a
-// per-request BYOK (bring-your-own-key) provider API key ONLY into that child
-// process's environment. Each caller therefore uses their own LLM key; the
-// server never holds a key of its own.
+// scientific-consensus CLI. Each /api endpoint runs the compiled CLI once per
+// request (always keyless/heuristic — the CLI never uses an LLM), then, when the
+// caller supplied a BYOK (bring-your-own-key) key, makes ONE in-process
+// chat-completions call (providers.go) to synthesize the CLI output into a
+// structured verdict. Each caller uses their own LLM key; the server never
+// holds a key of its own.
 //
-// SECURITY MODEL (enforced below, do not weaken):
+// SECURITY MODEL (enforced below and in providers.go, do not weaken):
 //   - The BYOK key arrives in the X-LLM-Key request header and lives in memory
-//     only for the duration of one request and one child process.
-//   - The key is NEVER logged, printed, persisted, or written to the server's
-//     own process environment. buildChildEnv() strips every known provider key
-//     out of os.Environ() before adding the single per-request key, so a key set
-//     in the server's own environment can never leak into a caller's request and
-//     a caller's key can never outlive the child.
-//   - Any CLI stderr surfaced to the client is passed through redact(), which
-//     removes the key substring so a key echoed in an error can never escape.
+//     only for the duration of one request and one outbound HTTPS call.
+//   - The key is NEVER logged, printed, persisted, written to the server's own
+//     process environment, or passed to the child CLI. buildChildEnv() strips
+//     every known provider key out of os.Environ(), so a key set in the
+//     server's own environment can never leak into the child either.
+//   - Any CLI stderr or LLM provider diagnostic surfaced to the client passes
+//     through redact()/sanitizeLLMError(), which remove the key substring so a
+//     key echoed in an error can never escape.
 package main
 
 import (
@@ -48,42 +49,28 @@ func cliBinaryPath() string {
 	return filepath.Join("bin", name)
 }
 
-// providerEnvVar maps a BYOK provider name to the environment variable the CLI
-// reads for that provider. The CLI checks these in a fixed priority order; by
-// setting exactly one (and stripping all others) we make the caller's chosen
-// provider deterministic. Empty provider => keyless heuristic run.
-var providerEnvVar = map[string]string{
-	"anthropic": "ANTHROPIC_API_KEY",
-	"openai":    "OPENAI_API_KEY",
-	"gemini":    "GEMINI_API_KEY",
-	"groq":      "GROQ_API_KEY",
-	"mistral":   "MISTRAL_API_KEY",
+// allProviderEnvVars is every provider key env var a CLI might conceivably
+// read. buildChildEnv strips ALL of them from the inherited environment so the
+// child never sees any provider key — the child is always keyless; LLM calls
+// happen in-process (providers.go).
+var allProviderEnvVars = []string{
+	"ANTHROPIC_API_KEY",
+	"OPENAI_API_KEY",
+	"GEMINI_API_KEY",
+	"GROQ_API_KEY",
+	"MISTRAL_API_KEY",
 }
 
-// allProviderEnvVars is every provider key the CLI might read. buildChildEnv
-// strips ALL of them from the inherited environment so the only provider key the
-// child ever sees is the one supplied on this request.
-var allProviderEnvVars = func() []string {
-	out := make([]string, 0, len(providerEnvVar))
-	for _, v := range providerEnvVar {
-		out = append(out, v)
-	}
-	return out
-}()
-
-type consensusRequest struct {
-	Claim    string `json:"claim"`
-	Provider string `json:"provider"`
-	Limit    int    `json:"limit"`
-}
-
-// consensusResponse wraps the CLI's raw JSON verbatim and adds one echoed field,
-// stance_source, describing what the web layer *requested*: "llm" when a key was
-// supplied (so the LLM path was attempted), "heuristic" when it was not. The
-// authoritative record of what actually ran is the CLI's own stance_method field
-// inside Result ("llm:<provider>" on success, "heuristic" on fallback/no-key).
+// consensusResponse wraps the CLI's raw JSON verbatim. stance_source is
+// "llm:<provider>" when an LLM synthesis succeeded, otherwise "heuristic"
+// (no key supplied, or the LLM call failed — then llm_error says why, already
+// redacted). llm_synthesis carries the structured verdict on success. With no
+// key the response is byte-identical in shape to the pre-LLM version:
+// {"stance_source":"heuristic","result":...}.
 type consensusResponse struct {
 	StanceSource string          `json:"stance_source"`
+	LLMSynthesis *llmSynthesis   `json:"llm_synthesis,omitempty"`
+	LLMError     string          `json:"llm_error,omitempty"`
 	Result       json.RawMessage `json:"result"`
 }
 
@@ -160,26 +147,35 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// byok holds the per-request BYOK decision derived from the request headers:
-// which env var to set for the child (envKeyVar), the key value, and the
-// stanceSource label echoed to the caller ("llm" or "heuristic").
+// byok holds the per-request BYOK decision: the validated provider name, the
+// key, and the (validated, possibly empty) model override. A zero byok means
+// keyless/heuristic.
 type byok struct {
-	envKeyVar    string
-	key          string
-	stanceSource string
+	provider string
+	key      string
+	model    string
 }
 
-// extractBYOK reads the X-LLM-Key header and resolves the provider (from the
-// bodyProvider argument, falling back to the X-LLM-Provider header). It returns
-// the byok decision and true on success; on a client error it writes the
-// response and returns false so the caller stops. When no key is supplied it
-// succeeds with a heuristic (keyless) decision.
-func extractBYOK(w http.ResponseWriter, r *http.Request, bodyProvider string) (byok, bool) {
+// extractBYOK reads the X-LLM-Key header, resolves the provider (from the
+// bodyProvider argument, falling back to the X-LLM-Provider header), and
+// validates the optional model override. It returns the byok decision and true
+// on success; on a client error it writes the response and returns false so
+// the caller stops. When no key is supplied it succeeds with a heuristic
+// (keyless) decision.
+func extractBYOK(w http.ResponseWriter, r *http.Request, bodyProvider, bodyModel string) (byok, bool) {
+	// The model override is validated even on keyless requests so a malformed
+	// value fails the same way regardless of key presence. Its value is never
+	// echoed back or logged.
+	model, errMsg := validateModel(bodyModel)
+	if errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return byok{}, false
+	}
 	// Key from header only (never from body — a key in a JSON body is easier to
 	// accidentally log).
 	key := strings.TrimSpace(r.Header.Get("X-LLM-Key"))
 	if key == "" {
-		return byok{stanceSource: "heuristic"}, true
+		return byok{}, true
 	}
 	provider := strings.ToLower(strings.TrimSpace(bodyProvider))
 	if provider == "" {
@@ -189,12 +185,11 @@ func extractBYOK(w http.ResponseWriter, r *http.Request, bodyProvider string) (b
 		writeError(w, http.StatusBadRequest, "X-LLM-Key supplied but no provider; set \"provider\" in body or X-LLM-Provider header")
 		return byok{}, false
 	}
-	v, ok := providerEnvVar[provider]
-	if !ok {
-		writeError(w, http.StatusBadRequest, "unknown provider "+quoteToken(provider)+"; supported: anthropic, openai, gemini, groq, mistral")
+	if _, ok := providers[provider]; !ok {
+		writeError(w, http.StatusBadRequest, "unknown provider "+quoteToken(provider)+"; supported: "+supportedProviders)
 		return byok{}, false
 	}
-	return byok{envKeyVar: v, key: key, stanceSource: "llm"}, true
+	return byok{provider: provider, key: key, model: model}, true
 }
 
 // clampLimit normalizes a caller-supplied --limit into the CLI's accepted range,
@@ -207,18 +202,20 @@ func clampLimit(limit, def int) int {
 }
 
 // runCLIJSON runs the CLI with the given argv (subcommand + positional args +
-// flags already assembled by the caller), injecting the BYOK key into ONLY the
-// child process environment, and writes the CLI's JSON stdout back to the client
-// wrapped with the echoed stance_source. It centralizes the exec, timeout,
-// key-redaction, and JSON-validation shared by every endpoint.
-func runCLIJSON(w http.ResponseWriter, r *http.Request, b byok, args []string) {
+// flags already assembled by the caller) in an always-keyless child, then —
+// when a BYOK key was supplied — performs the in-process LLM synthesis over
+// the CLI's JSON output and merges it into the response. An LLM failure never
+// fails the request: the heuristic result is returned with a redacted
+// llm_error. It centralizes the exec, timeouts, key-redaction, and
+// JSON-validation shared by every endpoint.
+func runCLIJSON(w http.ResponseWriter, r *http.Request, b byok, endpoint string, claims []string, args []string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
 
 	// #nosec G204 -- args are fixed subcommands/flags plus user text as discrete
-	// argv elements (no shell), and the key goes only into the child's env.
+	// argv elements (no shell); the child env carries no keys at all.
 	cmd := exec.CommandContext(ctx, cliBinaryPath(), args...)
-	cmd.Env = buildChildEnv(b.envKeyVar, b.key)
+	cmd.Env = buildChildEnv()
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -241,8 +238,18 @@ func runCLIJSON(w http.ResponseWriter, r *http.Request, b byok, args []string) {
 	}
 
 	resp := consensusResponse{
-		StanceSource: b.stanceSource,
+		StanceSource: "heuristic",
 		Result:       json.RawMessage(raw),
+	}
+	if b.key != "" {
+		syn, err := llmSynthesize(ctx, b.provider, b.key, b.model, endpoint, claims, raw)
+		if err != nil {
+			// Already sanitized/redacted by providers.go; safe for client + log-free.
+			resp.LLMError = err.Error()
+		} else {
+			resp.LLMSynthesis = syn
+			resp.StanceSource = "llm:" + b.provider
+		}
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(resp)
@@ -265,12 +272,13 @@ func decodePOST(w http.ResponseWriter, r *http.Request, dst any) bool {
 
 // ---- single-claim endpoints (consensus, evidence, gaps, controversies) ------
 
-// claimRequest is the shared body for the single-claim subcommands. Provider is
-// only meaningful for LLM-capable subcommands (consensus); it is harmless on the
-// others since a key simply selects the child env var.
+// claimRequest is the shared body for the single-claim subcommands. Provider
+// and Model select the in-process LLM synthesis; Model is an opaque token
+// validated by validateModel and defaults to the provider's DefaultModel.
 type claimRequest struct {
 	Claim    string `json:"claim"`
 	Provider string `json:"provider"`
+	Model    string `json:"model"`
 	Limit    int    `json:"limit"`
 }
 
@@ -291,12 +299,12 @@ func handleClaimCmd(w http.ResponseWriter, r *http.Request, subcommand string, d
 		writeError(w, http.StatusBadRequest, "claim is required")
 		return
 	}
-	b, ok := extractBYOK(w, r, req.Provider)
+	b, ok := extractBYOK(w, r, req.Provider, req.Model)
 	if !ok {
 		return
 	}
 	args := []string{subcommand, req.Claim, "--json", "--limit", fmt.Sprintf("%d", clampLimit(req.Limit, defLimit))}
-	runCLIJSON(w, r, b, args)
+	runCLIJSON(w, r, b, subcommand, []string{req.Claim}, args)
 }
 
 func handleConsensus(w http.ResponseWriter, r *http.Request) {
@@ -321,6 +329,7 @@ type compareRequest struct {
 	Claim1   string `json:"claim1"`
 	Claim2   string `json:"claim2"`
 	Provider string `json:"provider"`
+	Model    string `json:"model"`
 	Limit    int    `json:"limit"`
 }
 
@@ -339,25 +348,25 @@ func handleCompare(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "both claim1 and claim2 are required")
 		return
 	}
-	b, ok := extractBYOK(w, r, req.Provider)
+	b, ok := extractBYOK(w, r, req.Provider, req.Model)
 	if !ok {
 		return
 	}
 	args := []string{"compare", req.Claim1, req.Claim2, "--json", "--limit", fmt.Sprintf("%d", clampLimit(req.Limit, 40))}
-	runCLIJSON(w, r, b, args)
+	runCLIJSON(w, r, b, "compare", []string{req.Claim1, req.Claim2}, args)
 }
 
-// buildChildEnv returns the environment for the child CLI process: the server's
-// own environment with EVERY provider key removed, plus (when keyVar != "") the
-// single per-request key. This guarantees the child sees exactly zero or one
-// provider key, and never one that belongs to the server itself.
-func buildChildEnv(keyVar, keyVal string) []string {
+// buildChildEnv returns the environment for the child CLI process: the
+// server's own environment with EVERY provider key removed. The child is
+// always keyless — BYOK keys are used only for the in-process LLM call and
+// must never reach a subprocess.
+func buildChildEnv() []string {
 	strip := make(map[string]struct{}, len(allProviderEnvVars))
 	for _, v := range allProviderEnvVars {
 		strip[v] = struct{}{}
 	}
 	base := os.Environ()
-	out := make([]string, 0, len(base)+1)
+	out := make([]string, 0, len(base))
 	for _, kv := range base {
 		name := kv
 		if i := strings.IndexByte(kv, '='); i >= 0 {
@@ -367,9 +376,6 @@ func buildChildEnv(keyVar, keyVal string) []string {
 			continue // never inherit the server's own provider keys
 		}
 		out = append(out, kv)
-	}
-	if keyVar != "" && keyVal != "" {
-		out = append(out, keyVar+"="+keyVal)
 	}
 	return out
 }
