@@ -201,6 +201,14 @@ func clampLimit(limit, def int) int {
 	return limit
 }
 
+// cliPacingArgs is appended to every CLI invocation. OpenAlex 429s shared
+// anonymous traffic aggressively; --rate-limit 0.15 (~9 req/min) keeps the CLI
+// under that limit instead of tripping its adaptive backoff (which waits 60s
+// per retry and blows the request budget). Pacing makes multi-request runs
+// exceed the CLI's 60s default internal timeout, so --timeout is raised to
+// 100s — still inside this wrapper's 120s request budget.
+var cliPacingArgs = []string{"--rate-limit", "0.15", "--timeout", "100s"}
+
 // runCLIJSON runs the CLI with the given argv (subcommand + positional args +
 // flags already assembled by the caller) in an always-keyless child, then —
 // when a BYOK key was supplied — performs the in-process LLM synthesis over
@@ -211,6 +219,8 @@ func clampLimit(limit, def int) int {
 func runCLIJSON(w http.ResponseWriter, r *http.Request, b byok, endpoint string, claims []string, args []string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
+
+	args = append(args, cliPacingArgs...)
 
 	// #nosec G204 -- args are fixed subcommands/flags plus user text as discrete
 	// argv elements (no shell); the child env carries no keys at all.
