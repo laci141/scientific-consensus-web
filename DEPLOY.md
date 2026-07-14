@@ -61,8 +61,55 @@ curl -X POST $RENDER_URL/api/consensus \
 ### Step 4: Share
 
 1. Open `$RENDER_URL` in browser
-2. Paste claim + your LLM key (Anthropic/OpenAI/Gemini/etc.)
+2. Paste claim + your LLM key (any provider below)
 3. Click a button → results in modal
+
+## BYOK LLM Providers
+
+The CLI itself is keyless/heuristic. When you supply a key (`X-LLM-Key` header,
+never stored or logged), the web layer makes ONE chat call to your chosen
+provider to synthesize the CLI output into a structured verdict
+(`llm_synthesis`: stance / confidence / reasoning / key evidence). If the LLM
+call fails you still get the full heuristic result plus a redacted `llm_error`.
+
+| provider | base_url | default model | get a key |
+|---|---|---|---|
+| `anthropic` | api.anthropic.com/v1 (native Messages API) | claude-haiku-4-5 | console.anthropic.com |
+| `openai` | api.openai.com/v1 | gpt-5-mini | platform.openai.com |
+| `gemini` | generativelanguage.googleapis.com/v1beta/openai | gemini-2.5-flash | aistudio.google.com/apikey |
+| `groq` | api.groq.com/openai/v1 | llama-3.3-70b-versatile | console.groq.com |
+| `mistral` | api.mistral.ai/v1 | mistral-small-latest | console.mistral.ai |
+| `deepseek` | api.deepseek.com | deepseek-chat | platform.deepseek.com |
+| `zai` | api.z.ai/api/paas/v4 | glm-5 | z.ai/model-api |
+| `moonshot` | api.moonshot.ai/v1 | kimi-k2.6 | platform.moonshot.ai |
+| `qwen` | dashscope-intl.aliyuncs.com/compatible-mode/v1 | qwen3-max | Alibaba Cloud Model Studio |
+| `minimax` | api.minimax.io/v1 | MiniMax-M2.7 | platform.minimax.io |
+| `xai` | api.x.ai/v1 | grok-4-fast | console.x.ai |
+| `openrouter` | openrouter.ai/api/v1 | deepseek/deepseek-chat | openrouter.ai/keys |
+
+All providers except `anthropic` speak the OpenAI chat-completions format.
+`openrouter` is a meta-provider: the optional `model` body field selects any
+hosted model (including `:free` ones), so always set it there. `model` is an
+opaque token: trimmed, max 128 chars, no whitespace/control characters.
+
+```bash
+# 1. Heuristic (no key) — CLI result only
+curl -X POST $RENDER_URL/api/consensus \
+  -H "Content-Type: application/json" \
+  -d '{"claim":"vitamin D reduces infections","limit":20}'
+
+# 2. DeepSeek synthesis (default model deepseek-chat)
+curl -X POST $RENDER_URL/api/consensus \
+  -H "Content-Type: application/json" \
+  -H "X-LLM-Key: sk-your-deepseek-key" \
+  -d '{"claim":"vitamin D reduces infections","provider":"deepseek","limit":20}'
+
+# 3. OpenRouter with an explicit (free) model
+curl -X POST $RENDER_URL/api/consensus \
+  -H "Content-Type: application/json" \
+  -H "X-LLM-Key: sk-or-your-openrouter-key" \
+  -d '{"claim":"vitamin D reduces infections","provider":"openrouter","model":"deepseek/deepseek-chat-v3-0324:free","limit":20}'
+```
 
 ## Troubleshooting
 
