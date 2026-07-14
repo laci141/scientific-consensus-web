@@ -226,6 +226,32 @@
       cursor: pointer;
     }
     .form-group select option { background: #1a1a2e; }
+    .form-group select optgroup { background: #1a1a2e; color: #888; }
+    .model-hint {
+      font-size: 0.8rem;
+      color: #888;
+      margin-top: 0.35rem;
+      min-height: 1em;
+    }
+    .synthesis-badge {
+      display: inline-block;
+      padding: 0.2rem 0.7rem;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      margin-right: 0.5rem;
+    }
+    .llm-error-note {
+      font-size: 0.85rem;
+      color: #fbbf24;
+      background: rgba(251, 191, 36, 0.08);
+      border: 1px solid rgba(251, 191, 36, 0.25);
+      border-radius: 0.5rem;
+      padding: 0.6rem 0.9rem;
+      margin-bottom: 1rem;
+    }
 
     /* BUTTONS */
     .btn {
@@ -382,12 +408,26 @@
         <label style="margin-top: 1rem;">Provider</label>
         <select id="consensusProvider">
           <option value="">Heuristic (default)</option>
-          <option value="anthropic">Anthropic</option>
-          <option value="openai">OpenAI</option>
-          <option value="gemini">Google Gemini</option>
-          <option value="groq">Groq</option>
-          <option value="mistral">Mistral</option>
+          <optgroup label="⭐ Recommended">
+            <option value="deepseek">DeepSeek — fast + cheap</option>
+            <option value="zai">GLM (Z.ai) — science</option>
+            <option value="openrouter">OpenRouter — any/free models</option>
+          </optgroup>
+          <optgroup label="More providers">
+            <option value="anthropic">Anthropic Claude</option>
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="groq">Groq</option>
+            <option value="mistral">Mistral</option>
+            <option value="moonshot">Moonshot Kimi</option>
+            <option value="qwen">Qwen (DashScope)</option>
+            <option value="minimax">MiniMax</option>
+            <option value="xai">xAI Grok</option>
+          </optgroup>
         </select>
+        <label style="margin-top: 1rem;">Model (optional)</label>
+        <input type="text" id="consensusModel" placeholder="provider default" autocomplete="off">
+        <div class="model-hint" id="consensusModelHint"></div>
         <label style="margin-top: 1rem;">Limit (studies)</label>
         <input type="range" id="consensusLimit" min="1" max="200" value="50" style="width: 100%;">
         <span id="consensusLimitVal">50</span>
@@ -412,12 +452,26 @@
         <label style="margin-top: 1rem;">Provider</label>
         <select id="evidenceProvider">
           <option value="">Heuristic (default)</option>
-          <option value="anthropic">Anthropic</option>
-          <option value="openai">OpenAI</option>
-          <option value="gemini">Google Gemini</option>
-          <option value="groq">Groq</option>
-          <option value="mistral">Mistral</option>
+          <optgroup label="⭐ Recommended">
+            <option value="deepseek">DeepSeek — fast + cheap</option>
+            <option value="zai">GLM (Z.ai) — science</option>
+            <option value="openrouter">OpenRouter — any/free models</option>
+          </optgroup>
+          <optgroup label="More providers">
+            <option value="anthropic">Anthropic Claude</option>
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="groq">Groq</option>
+            <option value="mistral">Mistral</option>
+            <option value="moonshot">Moonshot Kimi</option>
+            <option value="qwen">Qwen (DashScope)</option>
+            <option value="minimax">MiniMax</option>
+            <option value="xai">xAI Grok</option>
+          </optgroup>
         </select>
+        <label style="margin-top: 1rem;">Model (optional)</label>
+        <input type="text" id="evidenceModel" placeholder="provider default" autocomplete="off">
+        <div class="model-hint" id="evidenceModelHint"></div>
         <label style="margin-top: 1rem;">Limit (studies)</label>
         <input type="range" id="evidenceLimit" min="1" max="200" value="50" style="width: 100%;">
         <span id="evidenceLimitVal">50</span>
@@ -444,12 +498,26 @@
         <label style="margin-top: 1rem;">Provider</label>
         <select id="compareProvider">
           <option value="">Heuristic (default)</option>
-          <option value="anthropic">Anthropic</option>
-          <option value="openai">OpenAI</option>
-          <option value="gemini">Google Gemini</option>
-          <option value="groq">Groq</option>
-          <option value="mistral">Mistral</option>
+          <optgroup label="⭐ Recommended">
+            <option value="deepseek">DeepSeek — fast + cheap</option>
+            <option value="zai">GLM (Z.ai) — science</option>
+            <option value="openrouter">OpenRouter — any/free models</option>
+          </optgroup>
+          <optgroup label="More providers">
+            <option value="anthropic">Anthropic Claude</option>
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="groq">Groq</option>
+            <option value="mistral">Mistral</option>
+            <option value="moonshot">Moonshot Kimi</option>
+            <option value="qwen">Qwen (DashScope)</option>
+            <option value="minimax">MiniMax</option>
+            <option value="xai">xAI Grok</option>
+          </optgroup>
         </select>
+        <label style="margin-top: 1rem;">Model (optional)</label>
+        <input type="text" id="compareModel" placeholder="provider default" autocomplete="off">
+        <div class="model-hint" id="compareModelHint"></div>
         <label style="margin-top: 1rem;">Limit (studies)</label>
         <input type="range" id="compareLimit" min="1" max="200" value="40" style="width: 100%;">
         <span id="compareLimitVal">40</span>
@@ -474,12 +542,26 @@
         <label style="margin-top: 1rem;">Provider</label>
         <select id="gapsProvider">
           <option value="">Heuristic (default)</option>
-          <option value="anthropic">Anthropic</option>
-          <option value="openai">OpenAI</option>
-          <option value="gemini">Google Gemini</option>
-          <option value="groq">Groq</option>
-          <option value="mistral">Mistral</option>
+          <optgroup label="⭐ Recommended">
+            <option value="deepseek">DeepSeek — fast + cheap</option>
+            <option value="zai">GLM (Z.ai) — science</option>
+            <option value="openrouter">OpenRouter — any/free models</option>
+          </optgroup>
+          <optgroup label="More providers">
+            <option value="anthropic">Anthropic Claude</option>
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="groq">Groq</option>
+            <option value="mistral">Mistral</option>
+            <option value="moonshot">Moonshot Kimi</option>
+            <option value="qwen">Qwen (DashScope)</option>
+            <option value="minimax">MiniMax</option>
+            <option value="xai">xAI Grok</option>
+          </optgroup>
         </select>
+        <label style="margin-top: 1rem;">Model (optional)</label>
+        <input type="text" id="gapsModel" placeholder="provider default" autocomplete="off">
+        <div class="model-hint" id="gapsModelHint"></div>
         <label style="margin-top: 1rem;">Limit (studies)</label>
         <input type="range" id="gapsLimit" min="1" max="200" value="60" style="width: 100%;">
         <span id="gapsLimitVal">60</span>
@@ -504,12 +586,26 @@
         <label style="margin-top: 1rem;">Provider</label>
         <select id="controversiesProvider">
           <option value="">Heuristic (default)</option>
-          <option value="anthropic">Anthropic</option>
-          <option value="openai">OpenAI</option>
-          <option value="gemini">Google Gemini</option>
-          <option value="groq">Groq</option>
-          <option value="mistral">Mistral</option>
+          <optgroup label="⭐ Recommended">
+            <option value="deepseek">DeepSeek — fast + cheap</option>
+            <option value="zai">GLM (Z.ai) — science</option>
+            <option value="openrouter">OpenRouter — any/free models</option>
+          </optgroup>
+          <optgroup label="More providers">
+            <option value="anthropic">Anthropic Claude</option>
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="groq">Groq</option>
+            <option value="mistral">Mistral</option>
+            <option value="moonshot">Moonshot Kimi</option>
+            <option value="qwen">Qwen (DashScope)</option>
+            <option value="minimax">MiniMax</option>
+            <option value="xai">xAI Grok</option>
+          </optgroup>
         </select>
+        <label style="margin-top: 1rem;">Model (optional)</label>
+        <input type="text" id="controversiesModel" placeholder="provider default" autocomplete="off">
+        <div class="model-hint" id="controversiesModelHint"></div>
         <label style="margin-top: 1rem;">Limit (studies)</label>
         <input type="range" id="controversiesLimit" min="1" max="200" value="50" style="width: 100%;">
         <span id="controversiesLimitVal">50</span>
@@ -527,24 +623,71 @@
 
   <script>
     // localStorage integration
-    const storageKeys = { key: 'sc_llm_key', provider: 'sc_provider' };
+    const storageKeys = { key: 'sc_llm_key', provider: 'sc_provider', model: 'sc_model' };
+
+    // Default model per provider — prefilled into the Model field on selection
+    // and shown as a hint. Users can override with any model id (openrouter
+    // effectively requires one, since it routes to any hosted model).
+    const providerDefaults = {
+      anthropic: 'claude-haiku-4-5',
+      openai: 'gpt-5-mini',
+      gemini: 'gemini-2.5-flash',
+      groq: 'llama-3.3-70b-versatile',
+      mistral: 'mistral-small-latest',
+      deepseek: 'deepseek-chat',
+      zai: 'glm-5',
+      moonshot: 'kimi-k2.6',
+      qwen: 'qwen3-max',
+      minimax: 'MiniMax-M2.7',
+      xai: 'grok-4-fast',
+      openrouter: 'deepseek/deepseek-chat'
+    };
+
+    // Prefill the model field with the provider default (only when empty or
+    // still holding another provider's default) and refresh the hint text.
+    function syncModelField(ep) {
+      const provElem = document.getElementById(`${ep}Provider`);
+      const modelElem = document.getElementById(`${ep}Model`);
+      const hintElem = document.getElementById(`${ep}ModelHint`);
+      if (!provElem || !modelElem) return;
+      const def = providerDefaults[provElem.value] || '';
+      const knownDefaults = Object.values(providerDefaults);
+      if (!modelElem.value.trim() || knownDefaults.includes(modelElem.value.trim())) {
+        modelElem.value = def;
+      }
+      if (hintElem) {
+        if (provElem.value === 'openrouter') {
+          hintElem.textContent = 'e.g. deepseek/deepseek-chat or a :free model — picks any OpenRouter model';
+        } else if (def) {
+          hintElem.textContent = `default: ${def}`;
+        } else {
+          hintElem.textContent = '';
+        }
+      }
+    }
 
     function loadSettings() {
       const stored_key = localStorage.getItem(storageKeys.key) || '';
       const stored_provider = localStorage.getItem(storageKeys.provider) || '';
+      const stored_model = localStorage.getItem(storageKeys.model) || '';
       ['consensus', 'evidence', 'compare', 'gaps', 'controversies'].forEach(ep => {
         const keyElem = document.getElementById(`${ep}Key`);
         const provElem = document.getElementById(`${ep}Provider`);
+        const modelElem = document.getElementById(`${ep}Model`);
         if (keyElem) keyElem.value = stored_key;
         if (provElem) provElem.value = stored_provider;
+        if (modelElem) modelElem.value = stored_model;
+        syncModelField(ep);
       });
     }
 
     function saveSettings(endpoint) {
       const keyElem = document.getElementById(`${endpoint}Key`);
       const provElem = document.getElementById(`${endpoint}Provider`);
+      const modelElem = document.getElementById(`${endpoint}Model`);
       if (keyElem) localStorage.setItem(storageKeys.key, keyElem.value);
       if (provElem) localStorage.setItem(storageKeys.provider, provElem.value);
+      if (modelElem) localStorage.setItem(storageKeys.model, modelElem.value);
     }
 
     // Copy the hero claim into a freshly-opened modal's claim field for convenience.
@@ -598,6 +741,8 @@
         body = { claim: claimField.value.trim(), limit: parseInt(limitField.value) };
       }
       if (provField.value) body.provider = provField.value;
+      const modelField = document.getElementById(`${endpoint}Model`);
+      if (modelField && modelField.value.trim()) body.model = modelField.value.trim();
 
       formField.style.display = 'none';
       resultsDiv.style.display = 'block';
@@ -620,7 +765,7 @@
           return;
         }
         const result = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
-        resultsDiv.innerHTML = renderResult(endpoint, result, data.stance_source) + newAnalysisBtn(endpoint);
+        resultsDiv.innerHTML = renderSynthesis(data) + renderResult(endpoint, result, data.stance_source) + newAnalysisBtn(endpoint);
       } catch (e) {
         resultsDiv.innerHTML = `<div class="result-card"><h3>Error</h3><p>${esc(e.message)}</p></div>` + newAnalysisBtn(endpoint);
       }
@@ -632,6 +777,35 @@
 
     function fx(n) { const v = Number(n); return isNaN(v) ? '—' : v.toFixed(2); }
     function num(n) { return (Number(n) || 0).toLocaleString(); }
+
+    // Render the LLM post-processing block: a synthesis card when the provider
+    // call succeeded, a soft warning when it failed (the CLI result below is
+    // still valid either way).
+    function renderSynthesis(data) {
+      let html = '';
+      if (data.llm_error) {
+        html += `<div class="llm-error-note">⚠️ LLM synthesis unavailable — showing heuristic result. (${esc(data.llm_error)})</div>`;
+      }
+      const s = data.llm_synthesis;
+      if (!s) return html;
+      const stanceColors = { supports: '#22c55e', refutes: '#ef4444', mixed: '#fbbf24', insufficient: '#888' };
+      const color = stanceColors[s.stance] || '#00d4ff';
+      let points = '';
+      if (Array.isArray(s.key_evidence) && s.key_evidence.length) {
+        points = '<ul>' + s.key_evidence.map(p => `<li>${esc(p)}</li>`).join('') + '</ul>';
+      }
+      html += `
+        <div class="result-card" style="--color: ${color}; border-left: 4px solid ${color};">
+          <h3>🤖 LLM Synthesis <span style="font-weight:400;color:#888;font-size:0.8rem;">${esc(data.stance_source)} · ${esc(s.model)}</span></h3>
+          <p style="margin: 0.5rem 0;">
+            <span class="synthesis-badge" style="color:${color};">${esc(s.stance)}</span>
+            <strong>Confidence:</strong> ${fx(s.confidence)}
+          </p>
+          <p>${esc(s.reasoning)}</p>
+          ${points}
+        </div>`;
+      return html;
+    }
 
     function renderResult(endpoint, result, stanceSource) {
       if (endpoint === 'consensus') {
@@ -731,7 +905,7 @@
       });
     });
 
-    // Range slider labels
+    // Range slider labels + provider→model prefill
     ['consensus', 'evidence', 'compare', 'gaps', 'controversies'].forEach(ep => {
       const slider = document.getElementById(`${ep}Limit`);
       if (slider) {
@@ -739,6 +913,8 @@
           document.getElementById(`${ep}LimitVal`).textContent = e.target.value;
         });
       }
+      const provElem = document.getElementById(`${ep}Provider`);
+      if (provElem) provElem.addEventListener('change', () => syncModelField(ep));
     });
 
     // Load settings on page load
