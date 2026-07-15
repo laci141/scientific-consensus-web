@@ -312,6 +312,40 @@
       margin-bottom: 1rem;
     }
 
+    /* EXCLUDED STUDIES (AI relevance/quality filter) */
+    .excluded-block {
+      margin-top: 1rem;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(239, 68, 68, 0.25);
+      border-radius: 0.6rem;
+      padding: 0.8rem 1rem;
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+    }
+    .excluded-head {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #f87171;
+      margin-bottom: 0.5rem;
+    }
+    .excluded-list {
+      list-style: none;
+      padding-left: 0;
+      margin: 0;
+    }
+    .excluded-list li {
+      font-size: 0.85rem;
+      color: #bbb;
+      padding: 0.35rem 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .excluded-list li:first-child { border-top: none; }
+    .excluded-title { color: #ddd; }
+    .excluded-reason { color: #888; font-style: italic; }
+    @media (max-width: 600px) {
+      .excluded-block { padding: 0.6rem 0.8rem; }
+    }
+
     /* BUTTONS */
     .btn {
       background: linear-gradient(90deg, #00d4ff, #7c3aed);
@@ -844,7 +878,9 @@
 
     // Render the LLM post-processing block: a synthesis card when the provider
     // call succeeded, a soft warning when it failed (the CLI result below is
-    // still valid either way).
+    // still valid either way). When the model returned an excluded-studies list
+    // (studies it judged off-topic or too weak to count), show it so the
+    // filtering is transparent.
     function renderSynthesis(data) {
       let html = '';
       if (data.llm_error) {
@@ -858,6 +894,17 @@
       if (Array.isArray(s.key_evidence) && s.key_evidence.length) {
         points = '<ul>' + s.key_evidence.map(p => `<li>${esc(p)}</li>`).join('') + '</ul>';
       }
+      let excluded = '';
+      if (Array.isArray(s.excluded_studies) && s.excluded_studies.length) {
+        const items = s.excluded_studies.map(e =>
+          `<li><span class="excluded-title">${esc(e.title)}</span>${e.reason ? ` <span class="excluded-reason">— ${esc(e.reason)}</span>` : ''}</li>`
+        ).join('');
+        excluded = `
+          <div class="excluded-block">
+            <div class="excluded-head">🚫 Excluded by the AI filter (${s.excluded_studies.length}) — off-topic or too weak to count</div>
+            <ul class="excluded-list">${items}</ul>
+          </div>`;
+      }
       html += `
         <div class="result-card" style="--color: ${color}; border-left: 4px solid ${color};">
           <h3>🤖 LLM Synthesis <span style="font-weight:400;color:#888;font-size:0.8rem;">${esc(data.stance_source)} · ${esc(s.model)}</span></h3>
@@ -867,6 +914,7 @@
           </p>
           <p>${esc(s.reasoning)}</p>
           ${points}
+          ${excluded}
         </div>`;
       return html;
     }

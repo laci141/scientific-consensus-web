@@ -5,8 +5,10 @@
 // layer, as a post-processing step: the CLI's JSON output plus the user's
 // claim(s) are sent in ONE chat-completions call to the caller-selected
 // provider, which returns a structured synthesis (stance, confidence,
-// reasoning, key evidence points). The CLI result is always returned verbatim;
-// an LLM failure degrades to the heuristic result plus a redacted llm_error.
+// reasoning, key evidence points, and now an explicit list of studies it
+// judged off-topic or methodologically too weak to count). The CLI result is
+// always returned verbatim; an LLM failure degrades to the heuristic result
+// plus a redacted llm_error.
 //
 // SECURITY MODEL (same rules as main.go, do not weaken):
 //   - The key lives in memory for one request and goes into exactly one
@@ -81,35 +83,62 @@ var supportedProviders = func() string {
 	return strings.Join(names, ", ")
 }()
 
+// excludedStudy is one study the LLM judged should not count toward the
+// verdict, with a short human-readable reason (off-topic, wrong subject,
+// animal/in-vitro only, etc.). Title mirrors the CLI study title so the UI can
+// match it against the displayed cards.
+type excludedStudy struct {
+	Title  string `json:"title"`
+	Reason string `json:"reason"`
+}
+
 // llmSynthesis is the structured post-processing verdict returned to clients
 // under "llm_synthesis". KeyEvidence holds 3-5 points referencing the CLI data.
+// ExcludedStudies lists the studies the model set aside as irrelevant or too
+// methodologically weak, so the filtering is transparent rather than silent.
 type llmSynthesis struct {
-	Stance      string   `json:"stance"` // supports | refutes | mixed | insufficient
-	Confidence  float64  `json:"confidence"`
-	Reasoning   string   `json:"reasoning"`
-	KeyEvidence []string `json:"key_evidence"`
-	Model       string   `json:"model"`
+	Stance          string          `json:"stance"` // supports | refutes | mixed | insufficient
+	Confidence      float64         `json:"confidence"`
+	Reasoning       string          `json:"reasoning"`
+	KeyEvidence     []string        `json:"key_evidence"`
+	ExcludedStudies []excludedStudy `json:"excluded_studies"`
+	Model           string          `json:"model"`
 }
 
 // maxCLIJSONForPrompt caps how much CLI output is embedded in the prompt so
-// large study lists cannot blow the model's context window.
-const maxCLIJSONForPrompt = 24 * 1024
+// large study lists cannot blow the model's context window. Raised from 24KB
+// to 56KB so the model sees more of the study list and can judge relevance on
+// more titles; still well inside typical context limits.
+const maxCLIJSONForPrompt = 56 * 1024
 
-// synthesisPrompt builds the single user message sent to the LLM.
+// synthesisPrompt builds the single user message sent to the LLM. It now asks
+// the model to act as a strict relevance/quality filter: examine each study by
+// title, set aside off-topic or methodologically weak entries, base the verdict
+// only on what genuinely bears on the claim, and report what it excluded.
 func synthesisPrompt(endpoint string, claims []string, cliJSON []byte) string {
+	truncated := false
 	if len(cliJSON) > maxCLIJSONForPrompt {
 		cliJSON = cliJSON[:maxCLIJSONForPrompt]
+		truncated = true
 	}
 	var b strings.Builder
-	b.WriteString("You are an evidence-synthesis assistant. Below is the JSON output of a scientific-literature analysis tool (command: " + endpoint + ") for the claim(s):\n")
+	b.WriteString("You are a rigorous evidence-synthesis assistant. Below is the JSON output of a scientific-literature analysis tool (command: " + endpoint + ") for the claim(s):\n")
 	for i, c := range claims {
 		fmt.Fprintf(&b, "CLAIM %d: %s\n", i+1, c)
 	}
 	b.WriteString("\nTOOL OUTPUT (may be truncated):\n")
 	b.Write(cliJSON)
-	b.WriteString("\n\nRespond with ONLY a JSON object, no markdown fences, with exactly these fields:\n" +
-		`{"stance":"supports|refutes|mixed|insufficient","confidence":0.0,"reasoning":"2-4 sentence synthesis","key_evidence":["3-5 short points, each referencing specific numbers or studies from the tool output"]}` + "\n" +
-		"stance is your overall verdict on claim 1 (for comparisons, weigh both claims and explain in reasoning). confidence is 0-1.")
+	if truncated {
+		b.WriteString("\n[NOTE: tool output was truncated; some studies may not be shown.]")
+	}
+	b.WriteString("\n\nIMPORTANT — the tool matched studies by keyword and did NOT verify that each study is actually about the claim. Before forming a verdict, act as a strict filter:\n" +
+		"1. Examine each study by its title (and any abstract/topic/design fields present).\n" +
+		"2. EXCLUDE a study when it is clearly off-topic (not about the claim's specific subject and outcome), when it studies a different substance, or when its design cannot support the claim about humans (e.g. animal-only or in-vitro/cell-culture studies used to assert a human body-weight or clinical effect).\n" +
+		"3. Base your stance, confidence, and key_evidence ONLY on the studies that remain after exclusion. Prefer higher-tier human evidence (meta-analyses, systematic reviews, RCTs) over observational or mechanistic studies, and note reverse-causality limits for observational data where relevant.\n" +
+		"4. If too few genuinely relevant studies remain, say so and use stance \"insufficient\".\n\n" +
+		"Respond with ONLY a JSON object, no markdown fences, with exactly these fields:\n" +
+		`{"stance":"supports|refutes|mixed|insufficient","confidence":0.0,"reasoning":"2-4 sentence synthesis based only on the studies you kept","key_evidence":["3-5 short points, each referencing specific numbers or studies you kept"],"excluded_studies":[{"title":"study title copied from the tool output","reason":"short reason, e.g. off-topic: about X not the claim / animal model only / in-vitro only / different substance"}]}` + "\n" +
+		"stance is your overall verdict on claim 1 (for comparisons, weigh both claims and explain in reasoning). confidence is 0-1. Leave excluded_studies as [] only if every study is genuinely relevant.")
 	return b.String()
 }
 
@@ -260,6 +289,27 @@ func parseSynthesis(text string) (*llmSynthesis, error) {
 	if len(syn.KeyEvidence) > 5 {
 		syn.KeyEvidence = syn.KeyEvidence[:5]
 	}
+	// Normalize excluded studies: drop entries with an empty title, trim fields,
+	// and cap the list so a runaway model response can't bloat the payload.
+	cleaned := make([]excludedStudy, 0, len(syn.ExcludedStudies))
+	for _, e := range syn.ExcludedStudies {
+		t := strings.TrimSpace(e.Title)
+		if t == "" {
+			continue
+		}
+		r := strings.TrimSpace(e.Reason)
+		if len(t) > 300 {
+			t = t[:300]
+		}
+		if len(r) > 200 {
+			r = r[:200]
+		}
+		cleaned = append(cleaned, excludedStudy{Title: t, Reason: r})
+		if len(cleaned) >= 20 {
+			break
+		}
+	}
+	syn.ExcludedStudies = cleaned
 	return &syn, nil
 }
 
