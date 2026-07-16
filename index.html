@@ -325,6 +325,19 @@
       padding: 0.6rem 0.9rem;
       margin-bottom: 1rem;
     }
+    /* Shown in place of the LLM synthesis card on gaps/evidence, whose CLI
+       output is summary-only so the server never runs a synthesis for them. */
+    .no-synthesis-note {
+      font-size: 0.85rem;
+      color: #888;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 0.5rem;
+      padding: 0.6rem 0.9rem;
+      margin-bottom: 1rem;
+      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px);
+    }
 
     /* EXCLUDED STUDIES (AI relevance/quality filter) */
     .excluded-block {
@@ -878,7 +891,12 @@
         }
         const result = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
         aiExcluded = buildExcludedIndex(data.llm_synthesis);
-        resultsDiv.innerHTML = renderSynthesis(data) + renderResult(endpoint, result, data.stance_source) + newAnalysisBtn(endpoint);
+        // gaps/evidence never get an LLM synthesis (the server skips it — their
+        // CLI output is summary-only), so show a short note in its place.
+        const synthesisBlock = (endpoint === 'gaps' || endpoint === 'evidence')
+          ? '<div class="no-synthesis-note">ℹ️ AI synthesis not used for this command — showing raw research findings.</div>'
+          : renderSynthesis(data);
+        resultsDiv.innerHTML = synthesisBlock + renderResult(endpoint, result, data.stance_source) + newAnalysisBtn(endpoint);
       } catch (e) {
         resultsDiv.innerHTML = `<div class="result-card"><h3>Error</h3><p>${esc(e.message)}</p></div>` + newAnalysisBtn(endpoint);
       }

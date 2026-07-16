@@ -251,7 +251,11 @@ func runCLIJSON(w http.ResponseWriter, r *http.Request, b byok, endpoint string,
 		StanceSource: "heuristic",
 		Result:       json.RawMessage(raw),
 	}
-	if b.key != "" {
+	// gaps and evidence emit summary statistics only (no study list, no
+	// abstracts), so an LLM synthesis over them has nothing to judge — it
+	// yielded 0.00-confidence or unparseable verdicts. Skip the LLM for those
+	// two; consensus/compare/controversies keep the full synthesis.
+	if b.key != "" && endpoint != "gaps" && endpoint != "evidence" {
 		syn, err := llmSynthesize(ctx, b.provider, b.key, b.model, endpoint, claims, raw)
 		if err != nil {
 			// Already sanitized/redacted by providers.go; safe for client + log-free.
