@@ -291,6 +291,20 @@
       .study-card { padding: 0.75rem 0.9rem; }
       .study-title { font-size: 0.95rem; }
     }
+    /* AI-excluded marking on study cards: visual flag only — the card stays
+       fully readable (no opacity change), matching the excluded-block accent */
+    .study-card.ai-excluded { border-color: rgba(239, 68, 68, 0.3); }
+    .study-title.ai-excluded-title {
+      text-decoration: line-through;
+      text-decoration-color: rgba(239, 68, 68, 0.7);
+    }
+    .study-chip.ai-excluded-chip { color: #f87171; border-color: rgba(239, 68, 68, 0.4); }
+    .ai-excluded-reason {
+      font-size: 0.8rem;
+      color: #888;
+      font-style: italic;
+      margin-top: 0.5rem;
+    }
 
     .synthesis-badge {
       display: inline-block;
@@ -863,6 +877,7 @@
           return;
         }
         const result = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+        aiExcluded = buildExcludedIndex(data.llm_synthesis);
         resultsDiv.innerHTML = renderSynthesis(data) + renderResult(endpoint, result, data.stance_source) + newAnalysisBtn(endpoint);
       } catch (e) {
         resultsDiv.innerHTML = `<div class="result-card"><h3>Error</h3><p>${esc(e.message)}</p></div>` + newAnalysisBtn(endpoint);
@@ -919,24 +934,66 @@
       return html;
     }
 
+    // AI-excluded index: rebuilt per query from llm_synthesis.excluded_studies,
+    // so study cards can be visually flagged when the LLM filtered them out.
+    let aiExcluded = [];
+
+    function buildExcludedIndex(synthesis) {
+      const list = synthesis && Array.isArray(synthesis.excluded_studies) ? synthesis.excluded_studies : [];
+      return list.map(e => ({ key: normTitle(e.title), reason: e.reason || '' }));
+    }
+
+    // Lowercase, strip accents, collapse punctuation/whitespace — so titles
+    // match across minor formatting differences between the LLM and the CLI.
+    function normTitle(t) {
+      return String(t || '')
+        .toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+    }
+
+    // Conservative match: exact normalized equality, or a shared prefix of the
+    // first ~50 chars but never shorter than 25 — a false positive (marking a
+    // kept study as excluded) is worse than missing a match.
+    function findExclusion(cardTitle) {
+      const c = normTitle(cardTitle);
+      if (!c) return null;
+      for (const e of aiExcluded) {
+        if (!e.key) continue;
+        if (e.key === c) return e;
+        const n = Math.min(50, c.length, e.key.length);
+        if (n >= 25 && c.slice(0, n) === e.key.slice(0, n)) return e;
+      }
+      return null;
+    }
+
     // Render one study as a card: bold title, meta chips, optional DOI link.
+    // When the LLM excluded the study, mark it (strikethrough title, 🚫 chip,
+    // the LLM's reason) without hiding or dimming anything.
     function renderStudyCard(w) {
       const stance = String(w.stance || '');
       const stanceClass = stance === 'supporting' ? 'stance-supporting'
         : stance === 'refuting' ? 'stance-refuting' : 'stance-neutral';
+      const ex = findExclusion(w.title);
       let chips = '';
+      if (ex) chips += `<span class="study-chip ai-excluded-chip">🚫 AI filter</span>`;
       if (w.year) chips += `<span class="study-chip">${esc(w.year)}</span>`;
       chips += `<span class="study-chip">${num(w.cited_by_count)} citations</span>`;
       if (w.design) chips += `<span class="study-chip">${esc(w.design)}</span>`;
       if (stance) chips += `<span class="study-chip ${stanceClass}">${esc(stance)}</span>`;
       if (w.stance_confidence != null) chips += `<span class="study-chip">confidence ${fx(w.stance_confidence)}</span>`;
+      const reason = ex && ex.reason
+        ? `<div class="ai-excluded-reason">🚫 ${esc(ex.reason)}</div>`
+        : '';
       const link = w.doi
         ? `<a class="study-link" href="https://doi.org/${esc(encodeURI(String(w.doi)))}" target="_blank" rel="noopener noreferrer">View source ↗</a>`
         : '';
       return `
-        <div class="study-card">
-          <div class="study-title">${esc(w.title)}</div>
+        <div class="study-card${ex ? ' ai-excluded' : ''}">
+          <div class="study-title${ex ? ' ai-excluded-title' : ''}">${esc(w.title)}</div>
           <div class="study-meta">${chips}</div>
+          ${reason}
           ${link}
         </div>`;
     }
