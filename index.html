@@ -291,13 +291,9 @@
       .study-card { padding: 0.75rem 0.9rem; }
       .study-title { font-size: 0.95rem; }
     }
-    /* AI-excluded marking on study cards: visual flag only — the card stays
-       fully readable (no opacity change), matching the excluded-block accent */
+    /* AI-excluded marking on study cards (inside the Excluded section):
+       visual flag only — the card stays fully readable (no opacity change) */
     .study-card.ai-excluded { border-color: rgba(239, 68, 68, 0.3); }
-    .study-title.ai-excluded-title {
-      text-decoration: line-through;
-      text-decoration-color: rgba(239, 68, 68, 0.7);
-    }
     .study-chip.ai-excluded-chip { color: #f87171; border-color: rgba(239, 68, 68, 0.4); }
     .ai-excluded-reason {
       font-size: 0.8rem;
@@ -371,6 +367,48 @@
     .excluded-reason { color: #888; font-style: italic; }
     @media (max-width: 600px) {
       .excluded-block { padding: 0.6rem 0.8rem; }
+    }
+
+    /* Collapsible bottom section for AI-excluded studies (PRISMA-style: the
+       main Supporting/Refuting columns stay clean, exclusions live here). */
+    .excluded-section {
+      margin-top: 1.5rem;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(239, 68, 68, 0.25);
+      border-radius: 0.6rem;
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+    }
+    .excluded-section summary {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #f87171;
+      padding: 0.8rem 1rem;
+      cursor: pointer;
+      user-select: none;
+    }
+    .excluded-section summary:hover { color: #fca5a5; }
+    .excluded-section-body { padding: 0 1rem 0.8rem; }
+    .excluded-claim-subhead {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #aaa;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin: 0.8rem 0 0.5rem;
+    }
+    @media (max-width: 600px) {
+      .excluded-section summary { padding: 0.6rem 0.8rem; }
+      .excluded-section-body { padding: 0 0.8rem 0.6rem; }
+    }
+
+    /* Muted label under heuristic scores: the number is algorithmic and
+       computed from every retrieved study, independent of the AI filter. */
+    .score-note {
+      font-size: 0.8rem;
+      color: #888;
+      font-style: italic;
+      margin-top: 0.4rem;
     }
 
     /* BUTTONS */
@@ -929,13 +967,10 @@
       }
       let excluded = '';
       if (Array.isArray(s.excluded_studies) && s.excluded_studies.length) {
-        const items = s.excluded_studies.map(e =>
-          `<li><span class="excluded-title">${esc(e.title)}</span>${e.reason ? ` <span class="excluded-reason">— ${esc(e.reason)}</span>` : ''}</li>`
-        ).join('');
+        const n = s.excluded_studies.length;
         excluded = `
           <div class="excluded-block">
-            <div class="excluded-head">🚫 Excluded by the AI filter (${s.excluded_studies.length}) — off-topic or too weak to count</div>
-            <ul class="excluded-list">${items}</ul>
+            <div class="excluded-head">🚫 ${n} ${n === 1 ? 'study' : 'studies'} excluded by the AI filter — see the Excluded section below</div>
           </div>`;
       }
       html += `
@@ -958,7 +993,7 @@
 
     function buildExcludedIndex(synthesis) {
       const list = synthesis && Array.isArray(synthesis.excluded_studies) ? synthesis.excluded_studies : [];
-      return list.map(e => ({ key: normTitle(e.title), reason: e.reason || '' }));
+      return list.map(e => ({ key: normTitle(e.title), title: e.title || '', reason: e.reason || '' }));
     }
 
     // Lowercase, strip accents, collapse punctuation/whitespace — so titles
@@ -987,13 +1022,14 @@
     }
 
     // Render one study as a card: bold title, meta chips, optional DOI link.
-    // When the LLM excluded the study, mark it (strikethrough title, 🚫 chip,
-    // the LLM's reason) without hiding or dimming anything.
-    function renderStudyCard(w) {
+    // `ex` is the exclusion entry when the card is rendered inside the
+    // Excluded section (🚫 chip + the LLM's reason, red border accent — no
+    // strikethrough: the section itself already labels the cards as excluded).
+    // Main-column cards are always kept studies, so ex is null there.
+    function renderStudyCard(w, ex) {
       const stance = String(w.stance || '');
       const stanceClass = stance === 'supporting' ? 'stance-supporting'
         : stance === 'refuting' ? 'stance-refuting' : 'stance-neutral';
-      const ex = findExclusion(w.title);
       let chips = '';
       if (ex) chips += `<span class="study-chip ai-excluded-chip">🚫 AI filter</span>`;
       if (w.year) chips += `<span class="study-chip">${esc(w.year)}</span>`;
@@ -1009,7 +1045,7 @@
         : '';
       return `
         <div class="study-card${ex ? ' ai-excluded' : ''}">
-          <div class="study-title${ex ? ' ai-excluded-title' : ''}">${esc(w.title)}</div>
+          <div class="study-title">${esc(w.title)}</div>
           <div class="study-meta">${chips}</div>
           ${reason}
           ${link}
@@ -1017,22 +1053,81 @@
     }
 
     // Render the "Supporting studies" / "Refuting studies" sections when the
-    // endpoint response carries per-study arrays.
-    function renderStudyGroups(supporting, refuting) {
+    // endpoint response carries per-study arrays. AI-excluded studies are NOT
+    // rendered here (PRISMA-style clean columns) — they are pushed into
+    // excludedSink as { work, ex } for the collapsible Excluded section below.
+    function renderStudyGroups(supporting, refuting, excludedSink) {
       const group = (label, arr) => {
+        const kept = [];
+        let excludedCount = 0;
+        if (Array.isArray(arr)) {
+          for (const w of arr) {
+            const ex = findExclusion(w.title);
+            if (ex && excludedSink) {
+              excludedSink.push({ work: w, ex });
+              excludedCount++;
+            } else {
+              kept.push(w);
+            }
+          }
+        }
         let s = `<div class="study-group-title">${label}</div>`;
-        if (Array.isArray(arr) && arr.length) {
-          s += arr.map(renderStudyCard).join('');
+        if (kept.length) {
+          s += kept.map(w => renderStudyCard(w, null)).join('');
         } else {
-          s += '<div class="study-empty">No studies in this group</div>';
+          const hint = excludedCount ? ` (${excludedCount} excluded — see below)` : '';
+          s += `<div class="study-empty">No studies in this group${hint}</div>`;
         }
         return s;
       };
       return group('Supporting studies', supporting) + group('Refuting studies', refuting);
     }
 
+    // Collapsible "Excluded by AI Filter" section at the bottom of a result.
+    // Two layers so no exclusion is ever lost: (a) cards pulled out of the main
+    // columns (items: { work, ex, claimLabel? }), grouped by claim when labels
+    // are present (compare); (b) fallback list of excluded_studies entries the
+    // conservative matcher never matched to a rendered card. Closed by default.
+    function renderExcludedSection(items) {
+      const matched = new Set(items.map(i => i.ex));
+      const unmatched = aiExcluded.filter(e => !matched.has(e));
+      const total = items.length + unmatched.length;
+      if (!total) return '';
+      let body = '';
+      const labels = [...new Set(items.map(i => i.claimLabel).filter(Boolean))];
+      if (labels.length) {
+        for (const label of labels) {
+          body += `<div class="excluded-claim-subhead">${esc(label)}</div>`;
+          body += items.filter(i => i.claimLabel === label)
+            .map(i => renderStudyCard(i.work, i.ex)).join('');
+        }
+      } else {
+        body += items.map(i => renderStudyCard(i.work, i.ex)).join('');
+      }
+      if (unmatched.length) {
+        body += `<div class="excluded-claim-subhead">Unmatched (not among the displayed studies)</div>`;
+        body += '<ul class="excluded-list">' + unmatched.map(e =>
+          `<li><span class="excluded-title">${esc(e.title)}</span>${e.reason ? ` <span class="excluded-reason">— ${esc(e.reason)}</span>` : ''}</li>`
+        ).join('') + '</ul>';
+      }
+      return `
+        <details class="excluded-section">
+          <summary>🚫 Excluded by AI Filter (${total})</summary>
+          <div class="excluded-section-body">${body}</div>
+        </details>`;
+    }
+
+    // Label under heuristic scores: the number is algorithmic, reproducible,
+    // and computed from every retrieved study — it is never overwritten by the
+    // LLM's relevance-filtered assessment.
+    function heuristicScoreNote() {
+      return `<p class="score-note">📐 Algorithmic score — reproducible heuristic computed from all retrieved studies, before any AI relevance filtering. The AI synthesis above assesses a filtered subset; the two are complementary, not comparable.</p>`;
+    }
+
     function renderResult(endpoint, result, stanceSource) {
       if (endpoint === 'consensus') {
+        const sink = [];
+        const groups = renderStudyGroups(result.top_supporting, result.top_refuting, sink);
         return `
           <div class="result-card" style="--color: #00d4ff;">
             <div class="verdict-box">${esc(result.verdict)}</div>
@@ -1044,8 +1139,9 @@
             <p><strong>Supporting / Refuting / Mixed / Inconclusive:</strong>
                ${num(result.supporting)} / ${num(result.refuting)} / ${num(result.mixed)} / ${num(result.inconclusive)}</p>
             <p><strong>Method:</strong> ${esc(result.stance_method)} &nbsp;·&nbsp; <strong>Requested:</strong> ${esc(stanceSource)}</p>
-            ${renderStudyGroups(result.top_supporting, result.top_refuting)}
-          </div>`;
+            ${heuristicScoreNote()}
+            ${groups}
+          </div>${renderExcludedSection(sink)}`;
       }
 
       if (endpoint === 'evidence') {
@@ -1063,7 +1159,7 @@
 
       if (endpoint === 'compare') {
         const a = result.claim_a || {}, b = result.claim_b || {};
-        const card = (x) => `
+        const card = (x, sink) => `
           <div class="result-card" style="--color: #ec4899;">
             <h3>${esc(x.claim)}</h3>
             <div class="verdict-box">${esc(x.verdict)}</div>
@@ -1072,9 +1168,16 @@
                <strong>Strength:</strong> ${esc(x.evidence_strength)} |
                <strong>Studies:</strong> ${num(x.study_count)}</p>
             <p><strong>Apex Design:</strong> ${esc(x.apex_design)} &nbsp;·&nbsp; <strong>Method:</strong> ${esc(x.stance_method)}</p>
-            ${renderStudyGroups(x.top_supporting, x.top_refuting)}
+            ${heuristicScoreNote()}
+            ${renderStudyGroups(x.top_supporting, x.top_refuting, sink)}
           </div>`;
-        return card(a) + card(b);
+        // One shared Excluded section for both claims: items are tagged with a
+        // claim label taken from which claim's arrays the card came from.
+        const sinkA = [], sinkB = [];
+        const html = card(a, sinkA) + card(b, sinkB);
+        const labeled = sinkA.map(i => ({ work: i.work, ex: i.ex, claimLabel: `Claim A: ${a.claim || ''}` }))
+          .concat(sinkB.map(i => ({ work: i.work, ex: i.ex, claimLabel: `Claim B: ${b.claim || ''}` })));
+        return html + renderExcludedSection(labeled);
       }
 
       // gaps: CLI returns { query, analyzed, latest_year, has_rct_or_stronger, findings:[{kind,detail}] }
@@ -1101,11 +1204,13 @@
       // controversies: CLI returns { controversy_score, contested, study_count,
       //   supporting, refuting, mixed, supporting_side:[work], refuting_side:[work] }
       if (endpoint === 'controversies') {
+        const sink = [];
         let html = `<div class="result-card" style="--color: #ef4444;"><h3>Controversies</h3>`;
         html += `<p><strong>Controversy score:</strong> ${esc(result.controversy_score)} &nbsp;·&nbsp; <strong>Contested:</strong> ${result.contested ? 'yes' : 'no'} &nbsp;·&nbsp; <strong>Studies:</strong> ${num(result.study_count)}</p>`;
         html += `<p><strong>Supporting / Refuting / Mixed:</strong> ${num(result.supporting)} / ${num(result.refuting)} / ${num(result.mixed)}</p>`;
-        html += renderStudyGroups(result.supporting_side, result.refuting_side);
-        return html + '</div>';
+        html += heuristicScoreNote();
+        html += renderStudyGroups(result.supporting_side, result.refuting_side, sink);
+        return html + '</div>' + renderExcludedSection(sink);
       }
 
       return `<div class="result-card"><pre>${esc(JSON.stringify(result, null, 2))}</pre></div>`;
