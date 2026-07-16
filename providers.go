@@ -111,11 +111,84 @@ type llmSynthesis struct {
 // more titles; still well inside typical context limits.
 const maxCLIJSONForPrompt = 56 * 1024
 
+// maxStudiesForLLM caps how many all_studies entries the LLM sees — bump this
+// one line to widen the LLM's view. The list is relevance-ordered, so the trim
+// keeps the most relevant studies; with ≤1500-char abstracts, 25 entries stay
+// comfortably inside maxCLIJSONForPrompt. Without the trim, the naive byte cap
+// cut the all_studies array mid-JSON (it is the LAST field of the CLI output),
+// silently dropping exactly the data the LLM needs most while keeping the
+// duplicated top_supporting/top_refuting abstracts.
+const maxStudiesForLLM = 25
+
+// compactForLLM shrinks the CLI JSON before it is embedded in the prompt.
+// Wherever an object carries an "all_studies" array (consensus output, and the
+// claim_a/claim_b sub-objects of compare output), the array is trimmed to the
+// first maxStudiesForLLM entries and the top_supporting/top_refuting lists are
+// dropped — all_studies supersedes them, and keeping both would send each top
+// study's abstract twice. Output without all_studies (evidence, gaps,
+// controversies, or an older CLI binary) is returned unchanged, as is anything
+// that fails to parse. Only the LLM's copy is compacted; the client always
+// receives the CLI JSON verbatim.
+func compactForLLM(raw []byte) []byte {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return raw
+	}
+	if !compactStudyObject(obj) {
+		return raw
+	}
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+// compactStudyObject applies the all_studies trim + top-list removal to one
+// object and recurses into compare's claim_a/claim_b sub-objects. Returns true
+// when anything changed.
+func compactStudyObject(obj map[string]json.RawMessage) bool {
+	changed := false
+	if rawList, ok := obj["all_studies"]; ok {
+		var list []json.RawMessage
+		if err := json.Unmarshal(rawList, &list); err == nil {
+			if len(list) > maxStudiesForLLM {
+				if trimmed, err := json.Marshal(list[:maxStudiesForLLM]); err == nil {
+					obj["all_studies"] = trimmed
+				}
+			}
+			delete(obj, "top_supporting")
+			delete(obj, "top_refuting")
+			changed = true
+		}
+	}
+	for _, k := range []string{"claim_a", "claim_b"} {
+		sub, ok := obj[k]
+		if !ok {
+			continue
+		}
+		var subObj map[string]json.RawMessage
+		if err := json.Unmarshal(sub, &subObj); err != nil {
+			continue
+		}
+		if compactStudyObject(subObj) {
+			if enc, err := json.Marshal(subObj); err == nil {
+				obj[k] = enc
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
 // synthesisPrompt builds the single user message sent to the LLM. It now asks
 // the model to act as a strict relevance/quality filter: examine each study by
-// title, set aside off-topic or methodologically weak entries, base the verdict
-// only on what genuinely bears on the claim, and report what it excluded.
+// abstract content (title as fallback), set aside off-topic or methodologically
+// weak entries, base the verdict only on what genuinely bears on the claim, and
+// report what it excluded. The CLI JSON is compacted first (compactForLLM) so
+// the LLM works from the relevance-ordered all_studies list when present.
 func synthesisPrompt(endpoint string, claims []string, cliJSON []byte) string {
+	cliJSON = compactForLLM(cliJSON)
 	truncated := false
 	if len(cliJSON) > maxCLIJSONForPrompt {
 		cliJSON = cliJSON[:maxCLIJSONForPrompt]
@@ -131,8 +204,8 @@ func synthesisPrompt(endpoint string, claims []string, cliJSON []byte) string {
 	if truncated {
 		b.WriteString("\n[NOTE: tool output was truncated; some studies may not be shown.]")
 	}
-	b.WriteString("\n\nIMPORTANT — the tool matched studies by keyword and did NOT verify that each study is actually about the claim. Before forming a verdict, act as a strict filter:\n" +
-		"1. Examine each study by its title (and any abstract/topic/design fields present).\n" +
+	b.WriteString("\n\nIMPORTANT — the tool matched studies by keyword and did NOT verify that each study is actually about the claim. When an \"all_studies\" array is present, it is the complete analyzed study list: ordered by search relevance (NOT by citation count), capped to the most relevant entries, each with an \"abstract\" field when the source provides one. Before forming a verdict, act as a strict filter:\n" +
+		"1. Examine each study by its abstract when present — judge relevance and study design from the abstract's content, not from the title alone (title only when the abstract is empty).\n" +
 		"2. EXCLUDE a study when it is clearly off-topic (not about the claim's specific subject and outcome), when it studies a different substance, or when its design cannot support the claim about humans (e.g. animal-only or in-vitro/cell-culture studies used to assert a human body-weight or clinical effect).\n" +
 		"3. Base your stance, confidence, and key_evidence ONLY on the studies that remain after exclusion. Prefer higher-tier human evidence (meta-analyses, systematic reviews, RCTs) over observational or mechanistic studies, and note reverse-causality limits for observational data where relevant.\n" +
 		"4. If too few genuinely relevant studies remain, say so and use stance \"insufficient\".\n\n" +
