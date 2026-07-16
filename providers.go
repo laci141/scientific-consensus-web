@@ -120,21 +120,35 @@ const maxCLIJSONForPrompt = 56 * 1024
 // duplicated top_supporting/top_refuting abstracts.
 const maxStudiesForLLM = 25
 
+// maxStudiesForCompare is the per-claim cap for compare output: compare packs
+// 2 claims into one prompt, so use a smaller per-claim cap to stay under the
+// byte cap (2 × ~12 studies with ≤1500-char abstracts ≈ ~45KB, inside the 56KB
+// maxCLIJSONForPrompt; 2 × 25 would exceed it and get cut mid-JSON).
+const maxStudiesForCompare = 12
+
 // compactForLLM shrinks the CLI JSON before it is embedded in the prompt.
 // Wherever an object carries an "all_studies" array (consensus output, and the
-// claim_a/claim_b sub-objects of compare output), the array is trimmed to the
-// first maxStudiesForLLM entries and the top_supporting/top_refuting lists are
-// dropped — all_studies supersedes them, and keeping both would send each top
-// study's abstract twice. Output without all_studies (evidence, gaps,
-// controversies, or an older CLI binary) is returned unchanged, as is anything
-// that fails to parse. Only the LLM's copy is compacted; the client always
-// receives the CLI JSON verbatim.
+// claim_a/claim_b sub-objects of compare output), the array is trimmed and the
+// top_supporting/top_refuting lists are dropped — all_studies supersedes them,
+// and keeping both would send each top study's abstract twice. The trim cap
+// depends on the shape: compare output (a top-level claim_a/claim_b key) uses
+// the smaller maxStudiesForCompare per claim so both study lists fit under
+// maxCLIJSONForPrompt together; everything else uses maxStudiesForLLM. Output
+// without all_studies (evidence, gaps, controversies, or an older CLI binary)
+// is returned unchanged, as is anything that fails to parse. Only the LLM's
+// copy is compacted; the client always receives the CLI JSON verbatim.
 func compactForLLM(raw []byte) []byte {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return raw
 	}
-	if !compactStudyObject(obj) {
+	maxStudies := maxStudiesForLLM
+	if _, isCompare := obj["claim_a"]; isCompare {
+		maxStudies = maxStudiesForCompare
+	} else if _, isCompare := obj["claim_b"]; isCompare {
+		maxStudies = maxStudiesForCompare
+	}
+	if !compactStudyObject(obj, maxStudies) {
 		return raw
 	}
 	out, err := json.Marshal(obj)
@@ -144,16 +158,16 @@ func compactForLLM(raw []byte) []byte {
 	return out
 }
 
-// compactStudyObject applies the all_studies trim + top-list removal to one
-// object and recurses into compare's claim_a/claim_b sub-objects. Returns true
-// when anything changed.
-func compactStudyObject(obj map[string]json.RawMessage) bool {
+// compactStudyObject applies the all_studies trim (to maxStudies entries) +
+// top-list removal to one object and recurses into compare's claim_a/claim_b
+// sub-objects with the same cap. Returns true when anything changed.
+func compactStudyObject(obj map[string]json.RawMessage, maxStudies int) bool {
 	changed := false
 	if rawList, ok := obj["all_studies"]; ok {
 		var list []json.RawMessage
 		if err := json.Unmarshal(rawList, &list); err == nil {
-			if len(list) > maxStudiesForLLM {
-				if trimmed, err := json.Marshal(list[:maxStudiesForLLM]); err == nil {
+			if len(list) > maxStudies {
+				if trimmed, err := json.Marshal(list[:maxStudies]); err == nil {
 					obj["all_studies"] = trimmed
 				}
 			}
@@ -171,7 +185,7 @@ func compactStudyObject(obj map[string]json.RawMessage) bool {
 		if err := json.Unmarshal(sub, &subObj); err != nil {
 			continue
 		}
-		if compactStudyObject(subObj) {
+		if compactStudyObject(subObj, maxStudies) {
 			if enc, err := json.Marshal(subObj); err == nil {
 				obj[k] = enc
 				changed = true

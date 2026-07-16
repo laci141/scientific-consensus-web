@@ -113,8 +113,8 @@ func TestCompactForLLMCompareNested(t *testing.T) {
 	got := decode(t, compactForLLM(cmp))
 	for _, k := range []string{"claim_a", "claim_b"} {
 		sub := decode(t, got[k])
-		if n := studyCount(t, sub); n != maxStudiesForLLM {
-			t.Errorf("%s.all_studies: got %d entries, want %d", k, n, maxStudiesForLLM)
+		if n := studyCount(t, sub); n != maxStudiesForCompare {
+			t.Errorf("%s.all_studies: got %d entries, want %d (per-claim compare cap)", k, n, maxStudiesForCompare)
 		}
 		if _, ok := sub["top_supporting"]; ok {
 			t.Errorf("%s.top_supporting should be removed", k)
@@ -124,6 +124,52 @@ func TestCompactForLLMCompareNested(t *testing.T) {
 	if err := json.Unmarshal(got["stronger_support"], &stronger); err != nil || stronger != "claim_a" {
 		t.Errorf("stronger_support corrupted: %s err=%v", got["stronger_support"], err)
 	}
+}
+
+// consensusJSONWithAbstractLen mirrors consensusJSON but with worst-case
+// abstract sizes (the CLI caps abstracts at ~1500 chars).
+func consensusJSONWithAbstractLen(t *testing.T, n, abstractLen int) []byte {
+	t.Helper()
+	studies := make([]map[string]any, 0, n)
+	for i := 0; i < n; i++ {
+		studies = append(studies, map[string]any{
+			"title":    fmt.Sprintf("Study %d with a realistically long title about the claim", i),
+			"year":     2020,
+			"abstract": strings.Repeat("a", abstractLen),
+		})
+	}
+	out, err := json.Marshal(map[string]any{
+		"claim":           "vitamin D reduces respiratory infections",
+		"verdict":         "supported",
+		"consensus_score": 0.8,
+		"top_supporting":  studies[:min(2, n)],
+		"top_refuting":    []map[string]any{},
+		"all_studies":     studies,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// TestCompareCompactionFitsByteCap encodes the point of the per-claim compare
+// cap: two claims with worst-case 1500-char abstracts must fit under
+// maxCLIJSONForPrompt after compaction, so the byte cap never cuts claim_b's
+// JSON mid-array.
+func TestCompareCompactionFitsByteCap(t *testing.T) {
+	cmp, err := json.Marshal(map[string]any{
+		"claim_a":          json.RawMessage(consensusJSONWithAbstractLen(t, 100, 1500)),
+		"claim_b":          json.RawMessage(consensusJSONWithAbstractLen(t, 100, 1500)),
+		"stronger_support": "claim_a",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := compactForLLM(cmp)
+	if len(got) >= maxCLIJSONForPrompt {
+		t.Errorf("compacted compare JSON is %d bytes, must stay under %d", len(got), maxCLIJSONForPrompt)
+	}
+	t.Logf("compacted compare JSON: %d bytes (cap %d)", len(got), maxCLIJSONForPrompt)
 }
 
 func TestCompactForLLMNoAllStudiesUnchanged(t *testing.T) {
