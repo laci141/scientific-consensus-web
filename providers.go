@@ -51,6 +51,10 @@ type providerSpec struct {
 	BaseURL      string
 	DefaultModel string
 	Style        authStyle
+	// JSONFormat requests JSON-object output via the OpenAI-wire
+	// response_format parameter. Only meaningful for styleOpenAI providers;
+	// enabled only where the endpoint is known to accept it (openrouter).
+	JSONFormat bool
 }
 
 // providers is the full BYOK registry. Everything except anthropic speaks the
@@ -59,18 +63,18 @@ type providerSpec struct {
 // openrouter is a meta-provider: its model string selects any hosted model
 // (including :free ones), so the UI treats model as effectively required there.
 var providers = map[string]providerSpec{
-	"anthropic":  {"https://api.anthropic.com/v1", "claude-haiku-4-5", styleAnthropic},
-	"openai":     {"https://api.openai.com/v1", "gpt-5-mini", styleOpenAI},
-	"gemini":     {"https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash", styleOpenAI},
-	"groq":       {"https://api.groq.com/openai/v1", "llama-3.3-70b-versatile", styleOpenAI},
-	"mistral":    {"https://api.mistral.ai/v1", "mistral-small-latest", styleOpenAI},
-	"deepseek":   {"https://api.deepseek.com", "deepseek-chat", styleOpenAI},
-	"zai":        {"https://api.z.ai/api/paas/v4", "glm-5", styleOpenAI},
-	"moonshot":   {"https://api.moonshot.ai/v1", "kimi-k2.6", styleOpenAI},
-	"qwen":       {"https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen3-max", styleOpenAI},
-	"minimax":    {"https://api.minimax.io/v1", "MiniMax-M2.7", styleOpenAI},
-	"xai":        {"https://api.x.ai/v1", "grok-4-fast", styleOpenAI},
-	"openrouter": {"https://openrouter.ai/api/v1", "deepseek/deepseek-chat", styleOpenAI},
+	"anthropic":  {"https://api.anthropic.com/v1", "claude-haiku-4-5", styleAnthropic, false},
+	"openai":     {"https://api.openai.com/v1", "gpt-5-mini", styleOpenAI, false},
+	"gemini":     {"https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash", styleOpenAI, false},
+	"groq":       {"https://api.groq.com/openai/v1", "llama-3.3-70b-versatile", styleOpenAI, false},
+	"mistral":    {"https://api.mistral.ai/v1", "mistral-small-latest", styleOpenAI, false},
+	"deepseek":   {"https://api.deepseek.com", "deepseek-chat", styleOpenAI, false},
+	"zai":        {"https://api.z.ai/api/paas/v4", "glm-5", styleOpenAI, false},
+	"moonshot":   {"https://api.moonshot.ai/v1", "kimi-k2.6", styleOpenAI, false},
+	"qwen":       {"https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen3-max", styleOpenAI, false},
+	"minimax":    {"https://api.minimax.io/v1", "MiniMax-M2.7", styleOpenAI, false},
+	"xai":        {"https://api.x.ai/v1", "grok-4-fast", styleOpenAI, false},
+	"openrouter": {"https://openrouter.ai/api/v1", "deepseek/deepseek-chat", styleOpenAI, true},
 }
 
 // supportedProviders is the sorted name list used in error messages.
@@ -237,9 +241,17 @@ type chatMessage struct {
 	Content string `json:"content"`
 }
 
+// responseFormat is the OpenAI-wire response_format parameter. Sent only when
+// providerSpec.JSONFormat is set; the nil pointer keeps the wire bytes of every
+// other provider's request identical to before the field existed.
+type responseFormat struct {
+	Type string `json:"type"`
+}
+
 type openAIRequest struct {
-	Model    string        `json:"model"`
-	Messages []chatMessage `json:"messages"`
+	Model          string          `json:"model"`
+	Messages       []chatMessage   `json:"messages"`
+	ResponseFormat *responseFormat `json:"response_format,omitempty"`
 }
 
 type anthropicRequest struct {
@@ -269,7 +281,11 @@ func llmSynthesize(ctx context.Context, provider, key, model, endpoint string, c
 		payload = anthropicRequest{Model: model, MaxTokens: 1024, Messages: []chatMessage{{Role: "user", Content: prompt}}}
 	default:
 		url = spec.BaseURL + "/chat/completions"
-		payload = openAIRequest{Model: model, Messages: []chatMessage{{Role: "user", Content: prompt}}}
+		reqPayload := openAIRequest{Model: model, Messages: []chatMessage{{Role: "user", Content: prompt}}}
+		if spec.JSONFormat {
+			reqPayload.ResponseFormat = &responseFormat{Type: "json_object"}
+		}
+		payload = reqPayload
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
