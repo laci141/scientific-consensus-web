@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Scientific Consensus — Evidence Synthesis</title>
+  <title>Corpova — Evidence Consensus Analysis</title>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Corpova — claim-level evidence analysis across the scientific literature: transparent AI filtering, dual scoring, keyless via OpenAlex.">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html { scroll-behavior: smooth; }
@@ -13,6 +15,19 @@
       color: #e0e0e0;
       line-height: 1.6;
       min-height: 100vh;
+    }
+    /* Colored radial glow behind everything so the glass blur has something
+       to diffuse (glass-panel baseline). */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      background:
+        radial-gradient(circle at 15% 20%, rgba(0, 212, 255, 0.14), transparent 40%),
+        radial-gradient(circle at 85% 15%, rgba(124, 58, 237, 0.14), transparent 40%),
+        radial-gradient(circle at 25% 85%, rgba(47, 214, 166, 0.10), transparent 40%),
+        radial-gradient(circle at 75% 80%, rgba(255, 171, 76, 0.10), transparent 40%);
     }
 
     /* HERO SECTION */
@@ -491,6 +506,49 @@
       text-decoration: underline;
     }
 
+    /* LEGAL DISCLAIMER (glass panel below the footer) */
+    .disclaimer {
+      max-width: 860px;
+      margin: 0 auto 2.5rem;
+      padding: 1.4rem 1.6rem;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 1rem;
+      backdrop-filter: blur(15px);
+      -webkit-backdrop-filter: blur(15px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      font-size: 0.85rem;
+      color: #999;
+      text-align: center;
+    }
+    .disclaimer a { color: #00d4ff; text-decoration: none; }
+    .disclaimer a:hover { text-decoration: underline; }
+    @media (max-width: 768px) {
+      .disclaimer {
+        margin: 0 1rem 2rem;
+        padding: 1rem;
+        backdrop-filter: blur(11px);
+        -webkit-backdrop-filter: blur(11px);
+      }
+    }
+
+    /* EXPORT META ROW (download buttons + quick filter) */
+    .meta-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem;gap:12px;flex-wrap:wrap}
+    .meta{font-size:.82rem;color:#99a}
+    .dl{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#cdd6ea;
+      padding:4px 14px;border-radius:999px;font-size:.75rem;font-weight:600;cursor:pointer;
+      transition:.2s;white-space:nowrap;flex-shrink:0}
+    .dl:hover{background:rgba(255,255,255,.15);border-color:var(--color,#00d4ff);color:#fff}
+    .dl-group{display:flex;gap:8px;flex-shrink:0;align-items:center;flex-wrap:wrap}
+    .qfilter{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.16);border-radius:999px;
+      padding:4px 14px;color:#e8eef7;font-size:.78rem;width:190px}
+    .qfilter:focus{outline:none;border-color:var(--color,#00d4ff)}
+    .qcount{color:#7dd3fc;font-size:.78rem;font-weight:600;margin-left:6px}
+
+    /* SORTABLE TABLE HEADERS */
+    .result-card th { cursor: pointer; user-select: none; white-space: nowrap; }
+    .sort-ind { color: #7dd3fc; font-size: 0.75rem; margin-left: 4px; }
+
     /* LOADING STATE */
     .loading {
       display: inline-block;
@@ -519,8 +577,8 @@
 
   <!-- HERO SECTION -->
   <section class="hero">
-    <h1>🧬 Scientific Consensus</h1>
-    <p>Aggregate evidence across PubMed, OpenAlex, Crossref &amp; Europe PMC</p>
+    <h1>🧬 Pubvera · Corpova</h1>
+    <p>Claim-level evidence analysis across the scientific literature — transparent filtering, dual scoring, keyless via OpenAlex.</p>
     <div class="claim-input-box">
       <textarea id="heroClaimInput" placeholder="e.g., 'Vitamin D reduces respiratory infections'"></textarea>
     </div>
@@ -780,9 +838,18 @@
 
   <!-- FOOTER -->
   <footer>
-    <p>Scientific Consensus CLI × Bento UI × LLM-assisted Evidence Synthesis</p>
-    <p><a href="https://github.com/laci141/scientific-consensus-web">GitHub</a> | Powered by <a href="https://github.com/mvanhorn/printing-press-library">Printing Press Library</a></p>
+    <p>Corpova — Evidence Consensus Analysis · LLM-assisted synthesis over open scholarly metadata</p>
+    <p><a href="https://github.com/laci141/pubvera-corpova">GitHub</a> | Powered by <a href="https://github.com/mvanhorn/printing-press-library">Printing Press Library</a></p>
   </footer>
+
+  <!-- LEGAL DISCLAIMER -->
+  <div class="disclaimer">
+    Corpova is an independent research-analytics tool. It is not affiliated with, endorsed by,
+    or sponsored by any journal, publisher, or research organisation. Publication metadata is
+    sourced from <a href="https://openalex.org" target="_blank" rel="noopener noreferrer">OpenAlex</a> (CC0).
+    AI-generated assessments may contain errors and are not medical advice — always verify
+    against the original sources.
+  </div>
 
   <script>
     // localStorage integration
@@ -875,6 +942,273 @@
       return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
     }
 
+    // ═════════ EXPORT SUITE (CSV / Excel / BibTeX / JSON) ═════════
+
+    // Last raw rows per export key; renderResult refills the keys of the
+    // endpoint it just rendered. Keys are endpoint-scoped so a run in one
+    // modal never changes what another modal's still-visible buttons export.
+    // Summary keys hold { rows, response } so CSV/Excel get the flat summary
+    // row while the JSON button downloads the full API response too.
+    const lastData = {
+      consensus_verdict: null, consensus_studies: null, consensus_excluded: null,
+      evidence_pyramid: null,
+      compare_summary: null, compare_studies: null, compare_excluded: null,
+      gaps_findings: null,
+      controversies_summary: null, controversies_studies: null, controversies_excluded: null
+    };
+
+    // Claim text of the most recent run — used in summary rows and BibTeX scope.
+    let lastQuery = '';
+
+    // Human-readable label per export key, used for @misc BibTeX citations of
+    // analyses that have no per-paper rows to cite.
+    const ANALYSIS_LABEL = {
+      consensus_verdict: 'Consensus analysis',
+      consensus_studies: 'Consensus study list',
+      consensus_excluded: 'Excluded studies (PRISMA)',
+      evidence_pyramid: 'Evidence pyramid analysis',
+      compare_summary: 'Claim comparison',
+      compare_studies: 'Claim comparison study list',
+      compare_excluded: 'Excluded studies (PRISMA)',
+      gaps_findings: 'Evidence gap analysis',
+      controversies_summary: 'Controversy analysis',
+      controversies_studies: 'Controversy study list',
+      controversies_excluded: 'Excluded studies (PRISMA)'
+    };
+
+    // Shared helper: pulls the row array out of whatever the module stored.
+    function rowsFromLastData(key) {
+      const d = lastData[key];
+      if (!d) return null;
+      if (Array.isArray(d)) return d;
+      if (typeof d === 'object') {
+        for (const k of Object.keys(d)) { if (Array.isArray(d[k])) return d[k]; }
+      }
+      return null;
+    }
+
+    // CSV (RFC4180). Excel-safe: BOM + CRLF + explicit separator hint.
+    function toCSV(rows) {
+      const cols = [];
+      rows.forEach(r => Object.keys(r || {}).forEach(k => { if (!cols.includes(k)) cols.push(k); }));
+      const cell = v => {
+        // Booleans must be exported as text, otherwise Excel localises them
+        // (Hungarian Excel shows IGAZ / HAMIS instead of TRUE / FALSE).
+        if (v === null || v === undefined || v === false) return "";
+        if (v === true) return "Yes";
+        let s = (typeof v === "object") ? JSON.stringify(v) : String(v);
+        if (/[",\r\n]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+        return s;
+      };
+      // "sep=," tells Excel the delimiter regardless of the user's locale.
+      const lines = ["sep=,", cols.map(cell).join(",")];
+      rows.forEach(r => lines.push(cols.map(c => cell(r ? r[c] : "")).join(",")));
+      // U+FEFF BOM so Excel detects UTF-8 (spelled out — an invisible literal
+      // in the source is too easy to delete by accident).
+      return String.fromCharCode(0xFEFF) + lines.join("\r\n");
+    }
+
+    function downloadCSV(key, filename) {
+      if (!lastData[key]) { alert('Run an analysis first.'); return; }
+      const rows = rowsFromLastData(key);
+      if (!rows || !rows.length) { alert('CSV export is not available for this result — use JSON.'); return; }
+      triggerDownload(new Blob([toCSV(rows)], { type: 'text/csv;charset=utf-8' }), filename);
+    }
+
+    // XLSX: centered numbers, left-aligned long text, styled header.
+    function downloadXLSX(key, filename) {
+      if (typeof XLSX === 'undefined') { alert('Excel library not loaded — check your connection and reload.'); return; }
+      if (!lastData[key]) { alert('Run an analysis first.'); return; }
+      const rows = rowsFromLastData(key);
+      if (!rows || !rows.length) { alert('Excel export is not available for this result — use JSON.'); return; }
+      const cols = [];
+      rows.forEach(r => Object.keys(r || {}).forEach(k => { if (!cols.includes(k)) cols.push(k); }));
+      const aoa = [cols].concat(rows.map(r => cols.map(c => {
+        const v = r ? r[c] : "";
+        if (v === null || v === undefined || v === false) return "";
+        if (v === true) return "Yes";
+        return (typeof v === "object") ? JSON.stringify(v) : v;
+      })));
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+      // Measure each column: long free text goes left and wide, short values centre.
+      const colInfo = cols.map(c => {
+        let max = String(c).length, sum = 0, cnt = 0;
+        rows.forEach(r => { const v = r ? r[c] : ""; const L = String(v == null ? "" : v).length; if (L > max) max = L; sum += L; cnt++; });
+        const avg = cnt ? sum / cnt : 0;
+        const isLong = (max > 22) || (avg > 18);
+        return { wch: Math.min(Math.max(max + 2, 9), isLong ? 90 : 24), left: isLong };
+      });
+
+      const range = XLSX.utils.decode_range(ws['!ref']);
+      const centerH = { vertical: 'center', horizontal: 'center', wrapText: false };
+      for (let R = range.s.r; R <= range.e.r; R++) {
+        for (let C = range.s.c; C <= range.e.c; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!ws[addr]) continue;
+          if (R === 0) {
+            ws[addr].s = { font: { bold: true, color: { rgb: 'FFFFFF' } }, alignment: centerH,
+              fill: { fgColor: { rgb: '4472C4' } },
+              border: { bottom: { style: 'thin', color: { rgb: '999999' } } } };
+          } else {
+            ws[addr].s = { alignment: { vertical: 'center',
+              horizontal: (colInfo[C] && colInfo[C].left) ? 'left' : 'center', wrapText: false } };
+          }
+        }
+      }
+      ws['!cols'] = colInfo.map(ci => ({ wch: ci.wch }));
+      ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Corpova');
+      XLSX.writeFile(wb, filename);
+    }
+
+    // BibTeX: @article for paper lists, @misc for analyses.
+    function bibKey(r, i) {
+      const t = String(r.title || r.display_name || 'item').split(/\s+/)[0].replace(/[^A-Za-z0-9]/g, '');
+      const y = Number(r.year || r.publication_year || 0) || '';
+      return (t || 'ref').toLowerCase() + (y || '') + '_' + (i + 1);
+    }
+    function bibEsc(v) { return String(v == null ? '' : v).replace(/[{}\\]/g, '').trim(); }
+
+    function toBibTeX(rows) {
+      const out = [];
+      rows.forEach((r, i) => {
+        const title = bibEsc(r.title || r.display_name || '');
+        if (!title) return;
+        const doi = String(r.doi || r.DOI || '').replace(/^https?:\/\/(dx\.)?doi\.org\//i, '').trim();
+        const year = Number(r.year || r.publication_year || 0);
+        const journal = bibEsc(r.journal || r.source || r.venue || '');
+        const authors = Array.isArray(r.authors)
+          ? r.authors.map(a => bibEsc(typeof a === 'string' ? a : (a && (a.name || a.author_name) || ''))).filter(Boolean).join(' and ')
+          : bibEsc(r.authors || r.author || '');
+        const lines = ['@article{' + bibKey(r, i) + ','];
+        lines.push('  title   = {' + title + '},');
+        if (authors) lines.push('  author  = {' + authors + '},');
+        if (journal) lines.push('  journal = {' + journal + '},');
+        if (year)    lines.push('  year    = {' + year + '},');
+        if (doi)     lines.push('  doi     = {' + doi + '},');
+        if (doi)     lines.push('  url     = {https://doi.org/' + doi + '},');
+        lines.push('  note    = {Exported from Corpova; metadata via OpenAlex (CC0)}');
+        lines.push('}');
+        out.push(lines.join('\n'));
+      });
+      return out.join('\n\n') + '\n';
+    }
+
+    // Analyses with no papers to cite (summary rows, pyramid, gap findings)
+    // get a dataset-style @misc citation of the analysis itself.
+    function analysisBibTeX(key, rows) {
+      const label = ANALYSIS_LABEL[key] || 'Evidence analysis';
+      let scope = '';
+      const metaEl = document.querySelector('.meta-row[data-key="' + key + '"] .meta');
+      if (metaEl) scope = metaEl.textContent.replace(/\s*·\s*\d+\s*\/\s*\d+\s*rows\s*$/, '').trim();
+      const y = new Date().getFullYear();
+      const title = bibEsc(label + (scope ? ': ' + scope : ''));
+      return '@misc{corpova_' + key + '_' + y + ',\n' +
+        '  title  = {' + title + '},\n' +
+        '  author = {{Corpova}},\n' +
+        '  year   = {' + y + '},\n' +
+        '  howpublished = {Corpova research analytics},\n' +
+        '  note   = {Evidence analysis of ' + (rows ? rows.length : 0) +
+          ' records; underlying publication metadata from OpenAlex (CC0)},\n' +
+        '  url    = {' + window.location.origin + '/}\n' +
+        '}\n';
+    }
+
+    function downloadBibTeX(key, filename) {
+      if (!lastData[key]) { alert('Run an analysis first.'); return; }
+      const rows = rowsFromLastData(key);
+      const papers = (rows || []).filter(r => r && (r.title || r.display_name));
+      const text = papers.length ? toBibTeX(papers) : analysisBibTeX(key, rows);
+      triggerDownload(new Blob([text], { type: 'application/x-bibtex;charset=utf-8' }), filename);
+    }
+
+    function downloadJSON(key, filename) {
+      const d = lastData[key];
+      if (!d) { alert('Run an analysis first.'); return; }
+      triggerDownload(new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' }), filename);
+    }
+
+    function triggerDownload(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    // One shared header row per result block: count text + quick filter +
+    // download buttons. opts.filter:false drops the filter input (used on
+    // one-row summary exports where filtering makes no sense).
+    function metaRow(text, key, filename, opts) {
+      const withFilter = !opts || opts.filter !== false;
+      const csvName = String(filename).replace(/\.json$/i, '.csv');
+      const xlsxName = String(filename).replace(/\.json$/i, '.xlsx');
+      const bibName = String(filename).replace(/\.json$/i, '.bib');
+      const bibTitle = /_studies$|_excluded$/.test(key)
+        ? 'BibTeX citations for these papers'
+        : 'BibTeX citation for this analysis (@misc)';
+      return '<div class="meta-row" data-key="' + key + '"><span class="meta">' + text + '<span class="qcount"></span></span>' +
+        '<span class="dl-group">' +
+        (withFilter ? '<input class="qfilter" type="text" placeholder="🔍 Filter results…">' : '') +
+        '<button class="dl" title="' + bibTitle + '" onclick="downloadBibTeX(\'' + key + '\',\'' + bibName + '\')">⬇ BibTeX</button>' +
+        '<button class="dl" onclick="downloadXLSX(\'' + key + '\',\'' + xlsxName + '\')">⬇ Excel</button>' +
+        '<button class="dl" onclick="downloadCSV(\'' + key + '\',\'' + csvName + '\')">⬇ CSV</button>' +
+        '<button class="dl" onclick="downloadJSON(\'' + key + '\',\'' + filename + '\')">⬇ JSON</button>' +
+        '</span></div>';
+    }
+
+    // Whole-analysis export row shown above the synthesis card for endpoints
+    // with a one-row summary export (their per-study rows live in the cards).
+    function topMetaRow(endpoint) {
+      if (endpoint === 'consensus')
+        return metaRow('Consensus analysis · ' + esc(lastQuery), 'consensus_verdict', 'corpova-consensus.json', { filter: false });
+      if (endpoint === 'compare')
+        return metaRow('Claim comparison · ' + esc(lastQuery), 'compare_summary', 'corpova-compare.json', { filter: false });
+      if (endpoint === 'controversies')
+        return metaRow('Controversy analysis · ' + esc(lastQuery), 'controversies_summary', 'corpova-controversies.json', { filter: false });
+      return '';
+    }
+
+    // Flatten one CLI study object into an export row. group records which
+    // column the study was rendered in; claim is set on compare exports only.
+    function studyRow(w, group, claim) {
+      const row = {
+        title: w.title || '', year: w.year || '',
+        citations: w.cited_by_count || 0,
+        design: w.design || '', stance: w.stance || '',
+        stance_confidence: w.stance_confidence != null ? w.stance_confidence : '',
+        doi: w.doi || '', group: group
+      };
+      if (claim !== undefined) row.claim = claim;
+      return row;
+    }
+
+    // Kept (non-excluded) studies from a supporting/refuting pair; the sink
+    // already holds the works the AI filter pulled out of the columns.
+    function keptRows(supporting, refuting, sink, claim) {
+      const excluded = new Set(sink.map(i => i.work));
+      const rows = [];
+      (Array.isArray(supporting) ? supporting : []).forEach(w => { if (!excluded.has(w)) rows.push(studyRow(w, 'supporting', claim)); });
+      (Array.isArray(refuting) ? refuting : []).forEach(w => { if (!excluded.has(w)) rows.push(studyRow(w, 'refuting', claim)); });
+      return rows;
+    }
+
+    // Excluded-studies export rows: matched cards keep full metadata, unmatched
+    // entries carry title + reason only. The exclusion reason is one column.
+    function excludedRows(items, unmatched) {
+      const rows = items.map(i => {
+        const r = studyRow(i.work, 'excluded', i.claimLabel);
+        r.exclusion_reason = (i.ex && i.ex.reason) || '';
+        r.matched = true;
+        return r;
+      });
+      unmatched.forEach(e => rows.push({ title: e.title || '', group: 'excluded', exclusion_reason: e.reason || '', matched: false }));
+      return rows;
+    }
+
     // Reset a modal back to its form view (used by the "New analysis" button).
     function resetModal(endpoint) {
       const formField = document.getElementById(`${endpoint}Form`);
@@ -929,12 +1263,18 @@
         }
         const result = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
         aiExcluded = buildExcludedIndex(data.llm_synthesis);
+        lastQuery = endpoint === 'compare' ? `${body.claim1} vs ${body.claim2}` : body.claim;
         // gaps/evidence never get an LLM synthesis (the server skips it — their
         // CLI output is summary-only), so show a short note in its place.
         const synthesisBlock = (endpoint === 'gaps' || endpoint === 'evidence')
           ? '<div class="no-synthesis-note">ℹ️ AI synthesis not used for this command — showing raw research findings.</div>'
           : renderSynthesis(data);
-        resultsDiv.innerHTML = synthesisBlock + renderResult(endpoint, result, data.stance_source) + newAnalysisBtn(endpoint);
+        // renderResult also refills this endpoint's lastData export keys, so it
+        // must run before topMetaRow's buttons could ever be clicked (it does:
+        // both land in the DOM in the same assignment).
+        const resultHtml = renderResult(endpoint, result, data.stance_source, data);
+        resultsDiv.innerHTML = topMetaRow(endpoint) + synthesisBlock + resultHtml + newAnalysisBtn(endpoint);
+        initSortIndicators(resultsDiv);
       } catch (e) {
         resultsDiv.innerHTML = `<div class="result-card"><h3>Error</h3><p>${esc(e.message)}</p></div>` + newAnalysisBtn(endpoint);
       }
@@ -1088,12 +1428,13 @@
     // columns (items: { work, ex, claimLabel? }), grouped by claim when labels
     // are present (compare); (b) fallback list of excluded_studies entries the
     // conservative matcher never matched to a rendered card. Closed by default.
-    function renderExcludedSection(items) {
+    function renderExcludedSection(items, key, filename) {
       const matched = new Set(items.map(i => i.ex));
       const unmatched = aiExcluded.filter(e => !matched.has(e));
+      lastData[key] = excludedRows(items, unmatched);
       const total = items.length + unmatched.length;
       if (!total) return '';
-      let body = '';
+      let body = metaRow(total + ' excluded ' + (total === 1 ? 'study' : 'studies') + ' with reasons', key, filename);
       const labels = [...new Set(items.map(i => i.claimLabel).filter(Boolean))];
       if (labels.length) {
         for (const label of labels) {
@@ -1124,10 +1465,27 @@
       return `<p class="score-note">📐 Algorithmic score — reproducible heuristic computed from all retrieved studies, before any AI relevance filtering. The AI synthesis above assesses a filtered subset; the two are complementary, not comparable.</p>`;
     }
 
-    function renderResult(endpoint, result, stanceSource) {
+    function renderResult(endpoint, result, stanceSource, data) {
       if (endpoint === 'consensus') {
         const sink = [];
         const groups = renderStudyGroups(result.top_supporting, result.top_refuting, sink);
+        const studies = keptRows(result.top_supporting, result.top_refuting, sink);
+        lastData.consensus_studies = studies;
+        const syn = data && data.llm_synthesis;
+        lastData.consensus_verdict = {
+          analysis: [{
+            claim: lastQuery, verdict: result.verdict || '',
+            consensus_score: result.consensus_score, confidence: result.confidence,
+            evidence_strength: result.evidence_strength || '', apex_design: result.apex_design || '',
+            studies_analyzed: result.study_count,
+            supporting: result.supporting, refuting: result.refuting,
+            mixed: result.mixed, inconclusive: result.inconclusive,
+            method: result.stance_method || '',
+            ai_stance: (syn && syn.stance) || '', ai_confidence: syn ? syn.confidence : '',
+            ai_model: (syn && syn.model) || ''
+          }],
+          response: data
+        };
         return `
           <div class="result-card" style="--color: #00d4ff;">
             <div class="verdict-box">${esc(result.verdict)}</div>
@@ -1140,12 +1498,17 @@
                ${num(result.supporting)} / ${num(result.refuting)} / ${num(result.mixed)} / ${num(result.inconclusive)}</p>
             <p><strong>Method:</strong> ${esc(result.stance_method)} &nbsp;·&nbsp; <strong>Requested:</strong> ${esc(stanceSource)}</p>
             ${heuristicScoreNote()}
+            ${metaRow(studies.length + ' studies shown', 'consensus_studies', 'corpova-consensus-studies.json')}
             ${groups}
-          </div>${renderExcludedSection(sink)}`;
+          </div>${renderExcludedSection(sink, 'consensus_excluded', 'corpova-consensus-excluded.json')}`;
       }
 
       if (endpoint === 'evidence') {
+        const pyramidRows = (Array.isArray(result.pyramid) ? result.pyramid : [])
+          .map(p => ({ design: p.design || '', count: p.count || 0, pct: p.pct || 0 }));
+        lastData.evidence_pyramid = { rows: pyramidRows, response: data };
         let html = `<div class="result-card" style="--color: #7c3aed;"><h3>Evidence Pyramid</h3>`;
+        html += metaRow(pyramidRows.length + ' evidence levels', 'evidence_pyramid', 'corpova-evidence-pyramid.json');
         if (Array.isArray(result.pyramid)) {
           html += '<table style="width:100%;font-size:0.9rem;"><tr><th>Design</th><th>Count</th><th>%</th></tr>';
           result.pyramid.forEach(p => {
@@ -1159,7 +1522,14 @@
 
       if (endpoint === 'compare') {
         const a = result.claim_a || {}, b = result.claim_b || {};
-        const card = (x, sink) => `
+        // Both cards' export buttons share the compare_studies key, so either
+        // one downloads the combined set (a claim column tells the rows apart).
+        const studyRowsAll = [];
+        const card = (x, sink, fallbackLabel) => {
+          const groups = renderStudyGroups(x.top_supporting, x.top_refuting, sink);
+          const rows = keptRows(x.top_supporting, x.top_refuting, sink, x.claim || fallbackLabel);
+          studyRowsAll.push(...rows);
+          return `
           <div class="result-card" style="--color: #ec4899;">
             <h3>${esc(x.claim)}</h3>
             <div class="verdict-box">${esc(x.verdict)}</div>
@@ -1169,15 +1539,25 @@
                <strong>Studies:</strong> ${num(x.study_count)}</p>
             <p><strong>Apex Design:</strong> ${esc(x.apex_design)} &nbsp;·&nbsp; <strong>Method:</strong> ${esc(x.stance_method)}</p>
             ${heuristicScoreNote()}
-            ${renderStudyGroups(x.top_supporting, x.top_refuting, sink)}
+            ${metaRow(rows.length + ' studies shown · export covers both claims', 'compare_studies', 'corpova-compare-studies.json')}
+            ${groups}
           </div>`;
+        };
         // One shared Excluded section for both claims: items are tagged with a
         // claim label taken from which claim's arrays the card came from.
         const sinkA = [], sinkB = [];
-        const html = card(a, sinkA) + card(b, sinkB);
+        const html = card(a, sinkA, 'Claim A') + card(b, sinkB, 'Claim B');
+        lastData.compare_studies = studyRowsAll;
+        const sumRow = x => ({
+          claim: x.claim || '', verdict: x.verdict || '',
+          consensus_score: x.consensus_score, confidence: x.confidence,
+          evidence_strength: x.evidence_strength || '', apex_design: x.apex_design || '',
+          studies_analyzed: x.study_count, method: x.stance_method || ''
+        });
+        lastData.compare_summary = { rows: [sumRow(a), sumRow(b)], response: data };
         const labeled = sinkA.map(i => ({ work: i.work, ex: i.ex, claimLabel: `Claim A: ${a.claim || ''}` }))
           .concat(sinkB.map(i => ({ work: i.work, ex: i.ex, claimLabel: `Claim B: ${b.claim || ''}` })));
-        return html + renderExcludedSection(labeled);
+        return html + renderExcludedSection(labeled, 'compare_excluded', 'corpova-compare-excluded.json');
       }
 
       // gaps: CLI returns { query, analyzed, latest_year, has_rct_or_stronger, findings:[{kind,detail}] }
@@ -1188,6 +1568,11 @@
         if (result.has_rct_or_stronger != null) html += ` &nbsp;·&nbsp; <strong>RCT+ evidence:</strong> ${result.has_rct_or_stronger ? 'yes' : 'no'}`;
         html += `</p>`;
         const findings = Array.isArray(result.findings) ? result.findings : [];
+        lastData.gaps_findings = {
+          rows: findings.map(f => ({ kind: f.kind || 'gap', detail: f.detail || '' })),
+          response: data
+        };
+        html += metaRow(findings.length + (findings.length === 1 ? ' finding' : ' findings'), 'gaps_findings', 'corpova-gaps.json');
         if (findings.length) {
           html += '<ul>';
           findings.forEach(f => {
@@ -1205,12 +1590,24 @@
       //   supporting, refuting, mixed, supporting_side:[work], refuting_side:[work] }
       if (endpoint === 'controversies') {
         const sink = [];
+        const groups = renderStudyGroups(result.supporting_side, result.refuting_side, sink);
+        const studies = keptRows(result.supporting_side, result.refuting_side, sink);
+        lastData.controversies_studies = studies;
+        lastData.controversies_summary = {
+          rows: [{
+            claim: lastQuery, controversy_score: result.controversy_score,
+            contested: !!result.contested, studies_analyzed: result.study_count,
+            supporting: result.supporting, refuting: result.refuting, mixed: result.mixed
+          }],
+          response: data
+        };
         let html = `<div class="result-card" style="--color: #ef4444;"><h3>Controversies</h3>`;
         html += `<p><strong>Controversy score:</strong> ${esc(result.controversy_score)} &nbsp;·&nbsp; <strong>Contested:</strong> ${result.contested ? 'yes' : 'no'} &nbsp;·&nbsp; <strong>Studies:</strong> ${num(result.study_count)}</p>`;
         html += `<p><strong>Supporting / Refuting / Mixed:</strong> ${num(result.supporting)} / ${num(result.refuting)} / ${num(result.mixed)}</p>`;
         html += heuristicScoreNote();
-        html += renderStudyGroups(result.supporting_side, result.refuting_side, sink);
-        return html + '</div>' + renderExcludedSection(sink);
+        html += metaRow(studies.length + ' studies shown', 'controversies_studies', 'corpova-controversies-studies.json');
+        html += groups;
+        return html + '</div>' + renderExcludedSection(sink, 'controversies_excluded', 'corpova-controversies-excluded.json');
       }
 
       return `<div class="result-card"><pre>${esc(JSON.stringify(result, null, 2))}</pre></div>`;
@@ -1236,6 +1633,76 @@
       }
       const provElem = document.getElementById(`${ep}Provider`);
       if (provElem) provElem.addEventListener('change', () => syncModelField(ep));
+    });
+
+    // ── Quick filter: one delegated handler for every .qfilter input. Scope
+    // is the meta-row's parent block; rows inside the Excluded section belong
+    // only to that section's own filter (and vice versa), so the two filters
+    // never fight over the same cards.
+    document.addEventListener('input', e => {
+      const input = e.target;
+      if (!input.classList || !input.classList.contains('qfilter')) return;
+      const row = input.closest('.meta-row');
+      if (!row || !row.parentElement) return;
+      const q = input.value.trim().toLowerCase();
+      const inExcluded = !!row.closest('.excluded-section');
+      const items = Array.from(row.parentElement.querySelectorAll('.study-card, li, tr'))
+        .filter(el => (el.tagName !== 'TR' || el.querySelector('td')) &&
+                      (!!el.closest('.excluded-section')) === inExcluded);
+      let shown = 0;
+      items.forEach(el => {
+        const hit = !q || el.textContent.toLowerCase().includes(q);
+        el.style.display = hit ? '' : 'none';
+        if (hit) shown++;
+      });
+      const count = row.querySelector('.qcount');
+      if (count) count.textContent = q ? ` · ${shown} / ${items.length} rows` : '';
+    });
+
+    // ── Sortable tables: ⇅ hint on every header cell of a freshly rendered
+    // result table (currently the evidence pyramid; applies to any future
+    // table automatically).
+    function initSortIndicators(root) {
+      root.querySelectorAll('.result-card table th').forEach(th => {
+        if (!th.querySelector('.sort-ind')) {
+          const s = document.createElement('span');
+          s.className = 'sort-ind';
+          s.textContent = '⇅';
+          th.appendChild(s);
+        }
+      });
+    }
+
+    // One delegated click handler sorts any result table by the clicked
+    // column. Numeric columns (ignoring %, commas) are auto-detected; the
+    // header row itself has no <td> cells so it always stays on top.
+    document.addEventListener('click', e => {
+      const th = e.target.closest('th');
+      if (!th || !th.closest('.result-card')) return;
+      const table = th.closest('table');
+      if (!table) return;
+      const idx = th.cellIndex;
+      const dir = th.dataset.dir === 'asc' ? 'desc' : 'asc';
+      table.querySelectorAll('th').forEach(h => {
+        delete h.dataset.dir;
+        const ind = h.querySelector('.sort-ind');
+        if (ind) ind.textContent = '⇅';
+      });
+      th.dataset.dir = dir;
+      const ind = th.querySelector('.sort-ind');
+      if (ind) ind.textContent = dir === 'asc' ? '↑' : '↓';
+      const rows = Array.from(table.querySelectorAll('tr')).filter(tr => tr.querySelector('td'));
+      const cellText = tr => (tr.cells[idx] ? tr.cells[idx].textContent : '').trim();
+      const numOf = s => parseFloat(s.replace(/[%,\s]/g, ''));
+      const numeric = rows.length > 0 &&
+        rows.every(tr => { const t = cellText(tr); return t === '' || !isNaN(numOf(t)); });
+      rows.sort((x, y) => {
+        const av = cellText(x), bv = cellText(y);
+        const cmp = numeric ? (numOf(av) || 0) - (numOf(bv) || 0) : av.localeCompare(bv);
+        return dir === 'asc' ? cmp : -cmp;
+      });
+      const parent = rows[0] && rows[0].parentElement;
+      if (parent) rows.forEach(r => parent.appendChild(r));
     });
 
     // Load settings on page load
