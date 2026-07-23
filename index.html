@@ -426,6 +426,76 @@
       margin-top: 0.4rem;
     }
 
+    /* PHASE 1 SAFETY SIGNALS ------------------------------------------------
+       Three bands, loudest first, rendered INSIDE the consensus result card
+       ABOVE its verdict so they cannot be scrolled past:
+         .warn-band       - the AI relevance filter never ran
+         .divergence-band - heuristic and AI reached different conclusions
+         .quiet-note      - soft "this looks suspiciously clean" nudge
+       .dampened greys out a number the band just said not to trust, WITHOUT
+       deleting it: the value stays readable and exportable, it just stops
+       looking authoritative. The explanatory tag is a SIBLING, never a child -
+       a parent's opacity cannot be undone by a descendant. */
+    .warn-band {
+      font-size: 0.9rem;
+      font-weight: 600;
+      line-height: 1.5;
+      color: #fca5a5;
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.45);
+      border-left: 4px solid #ef4444;
+      border-radius: 0.5rem;
+      padding: 0.8rem 1rem;
+      margin-bottom: 1rem;
+    }
+    .divergence-band {
+      font-size: 0.85rem;
+      color: #fbbf24;
+      background: rgba(251, 191, 36, 0.10);
+      border: 1px solid rgba(251, 191, 36, 0.35);
+      border-left: 4px solid #fbbf24;
+      border-radius: 0.5rem;
+      padding: 0.7rem 1rem;
+      margin-bottom: 1rem;
+    }
+    .divergence-why {
+      display: block;
+      margin-top: 0.3rem;
+      font-size: 0.78rem;
+      font-style: italic;
+      color: #a8a29e;
+    }
+    .quiet-note {
+      font-size: 0.8rem;
+      color: #9ca3af;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 0.5rem;
+      padding: 0.55rem 0.9rem;
+      margin-bottom: 1rem;
+    }
+    .dampened {
+      opacity: 0.45;
+      filter: grayscale(1);
+    }
+    .dampen-tag {
+      margin-left: 0.35rem;
+      font-size: 0.72rem;
+      font-style: italic;
+      color: #9ca3af;
+    }
+    /* Neutral verdict box: used when the filter did not run or the low-evidence
+       guard fired, so the headline verdict stops borrowing the card's
+       confident accent colour. */
+    .verdict-box.neutral {
+      color: #9ca3af;
+      background: rgba(255, 255, 255, 0.04);
+    }
+    @media (max-width: 600px) {
+      .warn-band { font-size: 0.85rem; padding: 0.7rem 0.8rem; }
+      .divergence-band, .quiet-note { padding: 0.6rem 0.8rem; }
+    }
+
     /* BUTTONS */
     .btn {
       background: linear-gradient(90deg, #00d4ff, #7c3aed);
@@ -1582,6 +1652,52 @@
         </details>`;
     }
 
+    // ---- Phase 1 safety signals -------------------------------------------
+    // filterRan(): the AI relevance filter only exists as a side effect of a
+    // COMPLETED LLM synthesis, and stance_source is the only field that records
+    // whether that happened: "llm:<provider>" on success, "heuristic" when no
+    // key was supplied OR the provider call failed / timed out.
+    //
+    // result.stance_method must NOT be used here. The vendored CLI is keyless
+    // by design — main.go's buildChildEnv() strips every provider key from the
+    // child environment — so stance_method reads "heuristic" on literally every
+    // run, and gating on it would light the warning band 100% of the time,
+    // including on successful AI runs.
+    function filterRan(stanceSource) {
+      return typeof stanceSource === 'string' && stanceSource.indexOf('llm:') === 0;
+    }
+
+    // 1a: the loudest band. The AI relevance filter never ran, so the study
+    // list is raw keyword matches and may be off-topic (the vaccines run).
+    function heuristicWarningBand(stanceSource) {
+      if (filterRan(stanceSource)) return '';
+      return `<div class="warn-band">⚠️ Nyers heurisztikus eredmény — az AI relevancia-szűrés NEM futott le. A listázott tanulmányok lehetnek témán kívüliek. Óvatosan értelmezd.</div>`;
+    }
+
+    // 1c: the server compared the heuristic verdict with the AI stance and they
+    // disagree on direction or on certainty. Silent when they agree.
+    function divergenceBand(data) {
+      if (!data || !data.divergence) return '';
+      const why = data.divergence_reason
+        ? `<span class="divergence-why">${esc(data.divergence_reason)}</span>`
+        : '';
+      return `<div class="divergence-band">⚠️ A nyers heurisztika és az AI-szűrt szintézis eltérő következtetésre jutott — óvatosan értelmezd.${why}</div>`;
+    }
+
+    // 1d: quiet nudge. Zero refuting AND zero mixed studies with a near-perfect
+    // score usually means real debate was filtered out (omega-3, melatonin).
+    function nearUnanimousNote(result) {
+      if (!result || !result.near_unanimous) return '';
+      return `<div class="quiet-note">Közel egyhangú — ellenőrizd, hogy nem szűrődött-e ki valódi vita.</div>`;
+    }
+
+    // dampen() greys out a value a band just warned about. The value is kept —
+    // never deleted — so it stays auditable and still lands in exports.
+    function dampen(html, on, tag) {
+      if (!on) return html;
+      return `<span class="dampened">${html}</span><span class="dampen-tag">${esc(tag)}</span>`;
+    }
+
     // Label under heuristic scores: the number is algorithmic, reproducible,
     // and computed from every retrieved study — it is never overwritten by the
     // LLM's relevance-filtered assessment.
@@ -1596,15 +1712,25 @@
         const studies = keptRows(result.top_supporting, result.top_refuting, sink);
         lastData.consensus_studies = studies;
         const syn = data && data.llm_synthesis;
+        // unfiltered: no AI relevance filtering happened at all (1a).
+        // guarded:    the Go low-evidence guard overwrote evidence_strength (1b).
+        const unfiltered = !filterRan(stanceSource);
+        const guarded = !!result.evidence_guarded;
         lastData.consensus_verdict = {
           analysis: [{
             claim: lastQuery, verdict: result.verdict || '',
             consensus_score: result.consensus_score, confidence: result.confidence,
             evidence_strength: result.evidence_strength || '', apex_design: result.apex_design || '',
             studies_analyzed: result.study_count,
+            relevant_count: result.relevant_count,
             supporting: result.supporting, refuting: result.refuting,
             mixed: result.mixed, inconclusive: result.inconclusive,
             method: result.stance_method || '',
+            ai_filter_ran: !unfiltered,
+            evidence_guarded: guarded,
+            near_unanimous: !!result.near_unanimous,
+            divergence: !!(data && data.divergence),
+            divergence_reason: (data && data.divergence_reason) || '',
             ai_stance: (syn && syn.stance) || '', ai_confidence: syn ? syn.confidence : '',
             ai_model: (syn && syn.model) || ''
           }],
@@ -1612,12 +1738,17 @@
         };
         return `
           <div class="result-card" style="--color: #00d4ff;">
-            <div class="verdict-box">${esc(result.verdict)}</div>
+            ${heuristicWarningBand(stanceSource)}
+            ${divergenceBand(data)}
+            ${nearUnanimousNote(result)}
+            <div class="verdict-box${(unfiltered || guarded) ? ' neutral' : ''}">${esc(result.verdict)}</div>
             <p><strong>Consensus Score:</strong> ${fx(result.consensus_score)}</p>
-            <p><strong>Confidence:</strong> ${fx(result.confidence)}</p>
-            <p><strong>Evidence Strength:</strong> ${esc(result.evidence_strength)}</p>
+            <p><strong>Confidence:</strong> ${dampen(fx(result.confidence), unfiltered, '— unverified: no AI filtering')}</p>
+            <p><strong>Evidence Strength:</strong> ${dampen(esc(result.evidence_strength), unfiltered || guarded,
+                 guarded ? '— guarded: too few relevant studies' : '— unverified: no AI filtering')}</p>
             <p><strong>Apex Design:</strong> ${esc(result.apex_design)}</p>
-            <p><strong>Studies Analyzed:</strong> ${num(result.study_count)}</p>
+            <p><strong>Studies Analyzed:</strong> ${num(result.study_count)}${
+                 result.relevant_count == null ? '' : ` &nbsp;·&nbsp; <strong>Relevant:</strong> ${num(result.relevant_count)}`}</p>
             <p><strong>Supporting / Refuting / Mixed / Inconclusive:</strong>
                ${num(result.supporting)} / ${num(result.refuting)} / ${num(result.mixed)} / ${num(result.inconclusive)}</p>
             <p><strong>Method:</strong> ${esc(result.stance_method)} &nbsp;·&nbsp; <strong>Requested:</strong> ${esc(stanceSource)}</p>

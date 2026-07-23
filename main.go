@@ -68,10 +68,90 @@ var allProviderEnvVars = []string{
 // key the response is byte-identical in shape to the pre-LLM version:
 // {"stance_source":"heuristic","result":...}.
 type consensusResponse struct {
-	StanceSource string          `json:"stance_source"`
-	LLMSynthesis *llmSynthesis   `json:"llm_synthesis,omitempty"`
-	LLMError     string          `json:"llm_error,omitempty"`
-	Result       json.RawMessage `json:"result"`
+	StanceSource string        `json:"stance_source"`
+	LLMSynthesis *llmSynthesis `json:"llm_synthesis,omitempty"`
+	LLMError     string        `json:"llm_error,omitempty"`
+	// Divergence reports that the keyless heuristic verdict and the LLM
+	// synthesis reached different conclusions, so the two blocks the UI shows
+	// cannot both be right. It is false whenever they agree and false whenever
+	// there is no synthesis to compare against. DivergenceReason names which
+	// axis fired; it is empty when Divergence is false.
+	Divergence       bool            `json:"divergence"`
+	DivergenceReason string          `json:"divergence_reason,omitempty"`
+	Result           json.RawMessage `json:"result"`
+}
+
+// consensusFacts is the minimal slice of the CLI's consensus JSON the web layer
+// needs in order to compare the heuristic result against the LLM synthesis.
+// Decoding only these fields keeps the CLI output opaque and forward-compatible
+// — the full result is still passed through verbatim.
+type consensusFacts struct {
+	Verdict  string `json:"verdict"`
+	Refuting int    `json:"refuting"`
+	Mixed    int    `json:"mixed"`
+}
+
+// verdictDirection maps the CLI's heuristic verdict onto a direction:
+// +1 supports, -1 refutes, 0 for every non-directional verdict (mixed,
+// inconclusive, insufficient-evidence).
+func verdictDirection(v string) int {
+	switch v {
+	case "evidence-supports":
+		return 1
+	case "evidence-refutes":
+		return -1
+	default:
+		return 0
+	}
+}
+
+// stanceDirection maps the LLM synthesis stance onto the same scale as
+// verdictDirection, so the two can be compared directly. "mixed" and
+// "insufficient" are non-directional and map to 0.
+func stanceDirection(s string) int {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "supports":
+		return 1
+	case "refutes":
+		return -1
+	default:
+		return 0
+	}
+}
+
+// divergenceFlag reports whether the keyless heuristic and the LLM synthesis
+// disagree, on either of two axes, and names the axis that fired.
+//
+//   - DIRECTION: the heuristic verdict and the LLM stance point different ways.
+//     Includes the case where one is directional and the other is not (the
+//     heuristic says "supports" while the LLM says "insufficient").
+//   - CERTAINTY: the LLM reports conflict or insufficiency ("mixed" /
+//     "insufficient") while the heuristic saw NO dissent at all — zero refuting
+//     and zero mixed studies. The heuristic's apparent unanimity is then an
+//     artifact of its lexical classifier, not a property of the literature.
+//
+// It returns false when the two agree (0.95 vs 1.00 in the same direction is
+// agreement, not divergence) and false when there is no synthesis to compare
+// against — no key, or the LLM call failed. Unparseable CLI JSON is treated as
+// "cannot compare", never as divergence.
+func divergenceFlag(cliJSON []byte, syn *llmSynthesis) (bool, string) {
+	if syn == nil {
+		return false, ""
+	}
+	var f consensusFacts
+	if err := json.Unmarshal(cliJSON, &f); err != nil {
+		return false, ""
+	}
+	if verdictDirection(f.Verdict) != stanceDirection(syn.Stance) {
+		return true, fmt.Sprintf("direction: heuristic verdict %q vs AI stance %q", f.Verdict, syn.Stance)
+	}
+	switch strings.ToLower(strings.TrimSpace(syn.Stance)) {
+	case "mixed", "insufficient":
+		if f.Refuting == 0 && f.Mixed == 0 {
+			return true, fmt.Sprintf("certainty: AI reports %q but the heuristic found no refuting and no mixed studies", syn.Stance)
+		}
+	}
+	return false, ""
 }
 
 func main() {
@@ -264,6 +344,12 @@ func runCLIJSON(w http.ResponseWriter, r *http.Request, b byok, endpoint string,
 			resp.LLMSynthesis = syn
 			resp.StanceSource = "llm:" + b.provider
 		}
+	}
+	// Divergence is only defined for the single-claim consensus shape; compare
+	// nests two results under claim_a/claim_b and would decode as an empty
+	// consensusFacts, so it is deliberately not flagged here.
+	if endpoint == "consensus" {
+		resp.Divergence, resp.DivergenceReason = divergenceFlag(raw, resp.LLMSynthesis)
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(resp)
