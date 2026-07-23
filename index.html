@@ -1671,7 +1671,7 @@
     // list is raw keyword matches and may be off-topic (the vaccines run).
     function heuristicWarningBand(stanceSource) {
       if (filterRan(stanceSource)) return '';
-      return `<div class="warn-band">⚠️ Nyers heurisztikus eredmény — az AI relevancia-szűrés NEM futott le. A listázott tanulmányok lehetnek témán kívüliek. Óvatosan értelmezd.</div>`;
+      return `<div class="warn-band">⚠️ Raw heuristic result — AI relevance filtering did not run. Listed studies may be off-topic. Interpret with caution.</div>`;
     }
 
     // 1c: the server compared the heuristic verdict with the AI stance and they
@@ -1681,14 +1681,14 @@
       const why = data.divergence_reason
         ? `<span class="divergence-why">${esc(data.divergence_reason)}</span>`
         : '';
-      return `<div class="divergence-band">⚠️ A nyers heurisztika és az AI-szűrt szintézis eltérő következtetésre jutott — óvatosan értelmezd.${why}</div>`;
+      return `<div class="divergence-band">⚠️ The raw heuristic and the AI-filtered synthesis reached different conclusions — interpret with caution.${why}</div>`;
     }
 
     // 1d: quiet nudge. Zero refuting AND zero mixed studies with a near-perfect
     // score usually means real debate was filtered out (omega-3, melatonin).
     function nearUnanimousNote(result) {
       if (!result || !result.near_unanimous) return '';
-      return `<div class="quiet-note">Közel egyhangú — ellenőrizd, hogy nem szűrődött-e ki valódi vita.</div>`;
+      return `<div class="quiet-note">Near-unanimous — check whether genuine debate was filtered out.</div>`;
     }
 
     // dampen() greys out a value a band just warned about. The value is kept —
